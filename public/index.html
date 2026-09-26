@@ -175,9 +175,11 @@
 
      <div id="screen-budget" class="screen" hidden>
       <section class="card" id="available-breakdown">
-        <h2 id="available-title">Available to spend</h2>
-        <p id="available-summary" class="budget-summary"></p>
-        <p class="step-hint">Available = your balance × (what is left at the end of the 3-month forecast ÷ the income expected in it), where left = expected income − expected payments. So it is never more than your balance. For each category and month: its budget or its planned + Auto amounts, whichever is more.</p>
+        <h2 id="available-title" class="calc-title">Available to spend</h2>
+        <p id="available-sub" class="calc-note calc-sub">Next 3 months</p>
+        <div id="available-summary" class="calc"></div>
+        <h3 class="calc-heading">Payments by category</h3>
+        <p class="calc-note">Each month: the budget, or planned + Auto if that is more.</p>
         <ul id="available-list" class="report-list"></ul>
       </section>
 

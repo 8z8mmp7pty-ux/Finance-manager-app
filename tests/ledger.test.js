@@ -622,21 +622,34 @@ test("R36: available with no income ahead, payments above income, or an empty ba
   assert.deepEqual([a.balance, a.income, a.surplus, a.available], [0, 150000, 150000, 0]);
 });
 
-test("R36: the breakdown explains each case truthfully", () => {
-  const money = (n) => "₹" + n;
+test("R36: the breakdown shows the calculation step by step and explains each case truthfully", () => {
   const explain = (balance, income, expected) => {
     const surplus = balance + income - expected;
-    return availableExplanation({ balance, income, expected, surplus, available: spendable(balance, income, expected) }, money);
+    return availableExplanation({ balance, income, expected, surplus, available: spendable(balance, income, expected) });
   };
-  assert.deepEqual(explain(58000, 180000, 9200), [
-    "Left at period end: ₹180000 income − ₹9200 payments = ₹170800; with the balance, ₹228800.",
-    "Available: ₹58000 balance × (₹170800 ÷ ₹180000 income = 94.9%) = ₹55035.56.",
+  // The owner's case: 63,000 in, 54,115.39 out, 2,972 in hand.
+  const c = explain(2972, 63000, 54115.39);
+  assert.deepEqual(c.groups[0], [
+    { label: "Income expected", amount: 63000, sign: "+" },
+    { label: "Payments expected", amount: 54115.39, sign: "−" },
+    { label: "Left at period end", amount: 8884.61, total: true },
   ]);
-  assert.equal(explain(0, 150000, 0)[1], "Available: ₹0 (nothing in hand yet).");
-  assert.equal(explain(0, 0, 5000)[1], "Available: ₹-5000 (payments are more than balance + income).");
-  assert.equal(explain(20000, 0, 1000)[1], "Available: ₹19000 (no income expected: the balance after payments).");
-  assert.equal(explain(20000, 10000, 15000)[1], "Available: ₹0 (payments use up all the income).");
-  assert.equal(explain(20000, 10000, 55000)[1], "Available: ₹-25000 (payments are more than balance + income).");
+  assert.deepEqual(c.groups[1], [
+    { label: "Balance now", amount: 2972 },
+    { label: "× Share of income left", percent: 14.1 },
+    { label: "Available to spend", amount: 419.13, total: true },
+  ]);
+  assert.equal(c.note, "");
+  assert.equal(c.closing, 11856.61);
+  // Cases where the share is not used: no "× share" step, and a note says why.
+  const note = (b, i, e) => explain(b, i, e).note;
+  assert.equal(explain(0, 150000, 0).groups[1].length, 2);
+  assert.equal(note(0, 150000, 0), "Nothing in hand yet.");
+  assert.match(note(0, 0, 5000), /shortfall/);
+  assert.equal(note(20000, 0, 1000), "No income expected: your balance after the payments.");
+  assert.equal(explain(20000, 0, 1000).groups[1][1].amount, 19000);
+  assert.match(note(20000, 10000, 15000), /use up all the income/);
+  assert.match(note(20000, 10000, 55000), /shortfall/);
 });
 
 test("R36: budget and planned are compared month by month; the lowest point is reported", () => {

@@ -1558,19 +1558,26 @@ function renderAvailable() {
   });
 
   // Breakdown on the Budget screen.
-  document.getElementById("available-title").textContent = `Available to spend (until ${shortDate(a.until)})`;
+  document.getElementById("available-sub").textContent = `Next 3 months · until ${shortDate(a.until)}`;
   const summaryEl = document.getElementById("available-summary");
   summaryEl.innerHTML = "";
-  for (const line of availableExplanation(a, (n) => currency.format(n))) summaryEl.append(el("span", "summary-line", line));
+  const calc = availableExplanation(a);
+  for (const group of calc.groups) {
+    const box = el("div", "calc-group");
+    for (const step of group) {
+      const row = el("div", "calc-row" + (step.total ? " calc-total" : ""));
+      const value =
+        step.percent !== undefined ? step.percent + "%" : (step.sign || (step.amount < 0 ? "−" : "")) + currency.format(Math.abs(step.amount));
+      const cls = step.sign === "+" ? " income" : step.sign === "−" || (step.total && step.amount < 0) ? " expense" : "";
+      row.append(el("span", "calc-label", step.label), el("span", "calc-value" + cls, value));
+      box.append(row);
+    }
+    summaryEl.append(box);
+  }
+  if (calc.note) summaryEl.append(el("p", "calc-note", calc.note));
+  summaryEl.append(el("p", "calc-note", `Balance on ${shortDate(a.until)} if all goes to plan: ${currency.format(calc.closing)}.`));
   const listEl = document.getElementById("available-list");
   listEl.innerHTML = "";
-  if (a.income > 0) {
-    const li = el("li", "report-row");
-    const info = el("div", "entry-info");
-    info.append(el("p", "entry-desc", "Expected income"), el("p", "entry-date", "planned income in the forecast"));
-    li.append(el("span", "row-icon", "↓"), info, el("span", "entry-amount income", "+" + currency.format(a.income)));
-    listEl.append(li);
-  }
   if (!a.rows.length) listEl.append(el("li", "empty", "No payments expected in the forecast."));
   for (const r of a.rows) {
     const li = el("li", "report-row");

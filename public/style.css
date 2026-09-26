@@ -586,4 +586,19 @@ li:last-child > button.report-row { border-bottom: none; }
 .plan-item:not(.auto-plan) > button.report-row { flex: 1 1 240px; }
 .plan-item:not(.auto-plan) .record-btn { margin: 0 0 8px auto; }
 .plan-repeat .entry-desc { color: var(--muted); }
-.summary-line { display: block; }
+
+/* Available to spend: the calculation, laid out like a receipt. */
+.calc { display: grid; gap: 10px; margin: 4px 0 12px; }
+.calc-group { background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+.calc-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0; font-size: 0.95rem; }
+.calc-label { color: var(--muted); }
+.calc-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.calc-value.income { color: var(--income); }
+.calc-value.expense { color: var(--expense); }
+.calc-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 7px; font-weight: 700; }
+.calc-total .calc-label { color: var(--text); }
+.calc-group:last-of-type .calc-total .calc-value:not(.expense) { color: var(--accent); font-size: 1.1rem; }
+.calc-note { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.calc-title { margin-bottom: 2px; }
+.calc-sub { margin-bottom: 12px; }
+.calc-heading { font-size: 0.95rem; margin: 18px 0 2px; }

@@ -673,23 +673,34 @@ export function spendable(balance, income, expected) {
   return round((balance * (income - expected)) / income);
 }
 
-// The two lines explaining Available to spend (Budget screen), formatted with `money`.
-export function availableExplanation(a, money) {
+// The calculation behind Available to spend, as two small sums for the Budget screen:
+// income − payments = left, then balance × share of income left = available. Each step is
+// { label, amount } or { label, percent }; `total` marks the result line. `note` explains a case
+// where the share can't be used (no income, payments above income, nothing in hand).
+export function availableExplanation(a) {
   const left = round(a.income - a.expected);
-  const surplus = `Left at period end: ${money(a.income)} income − ${money(a.expected)} payments = ${money(left)}; with the balance, ${money(a.surplus)}.`;
-  if (a.balance > 0 && a.income > 0 && a.expected < a.income) {
-    const pct = Math.round(((a.income - a.expected) / a.income) * 1000) / 10;
-    return [surplus, `Available: ${money(a.balance)} balance × (${money(left)} ÷ ${money(a.income)} income = ${pct}%) = ${money(a.available)}.`];
-  }
-  const why =
-    a.surplus < 0 && a.surplus < a.balance
-      ? "payments are more than balance + income"
+  const share = a.income > 0 ? Math.round((left / a.income) * 1000) / 10 : null;
+  const first = [
+    { label: "Income expected", amount: a.income, sign: "+" },
+    { label: "Payments expected", amount: a.expected, sign: "−" },
+    { label: "Left at period end", amount: left, total: true },
+  ];
+  const usesShare = a.balance > 0 && a.income > 0 && a.expected < a.income;
+  const second = [
+    { label: "Balance now", amount: a.balance },
+    ...(usesShare ? [{ label: "× Share of income left", percent: share }] : []),
+    { label: "Available to spend", amount: a.available, total: true },
+  ];
+  const note = usesShare
+    ? ""
+    : a.surplus < 0 && a.surplus < a.balance
+      ? "Payments are more than your balance and income together: this is the shortfall."
       : a.balance <= 0
-        ? "nothing in hand yet"
+        ? "Nothing in hand yet."
         : a.income <= 0
-          ? "no income expected: the balance after payments"
-          : "payments use up all the income";
-  return [surplus, `Available: ${money(a.available)} (${why}).`];
+          ? "No income expected: your balance after the payments."
+          : "Payments use up all the income, so nothing is free to spend.";
+  return { groups: [first, second], note, closing: a.surplus };
 }
 
 // The surplus after every entry in the forecast: current balance + expected income − expected

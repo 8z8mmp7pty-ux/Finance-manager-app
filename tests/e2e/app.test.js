@@ -838,9 +838,20 @@ test("R36: the home page shows available to spend = balance × (left ÷ income),
 
   await page.tap("#available");
   await page.waitForSelector("#screen-budget:not([hidden])");
-  const [leftLine] = await page.$$eval("#available-summary .summary-line", (els) => els.map((e) => e.textContent));
-  const [income, expected, left, surplus] = leftLine.replace(/^Left at period end: /, "").replace(/\.$/, "").split(/ income − | payments = |; with the balance, /).map(num);
-  const balance = num(await page.textContent("#balance"));
+  // The calculation reads like a receipt: label on the left, amount on the right.
+  const calc = await page.$$eval("#available-summary .calc-row", (rows) =>
+    Object.fromEntries(rows.map((r) => [r.querySelector(".calc-label").textContent, r.querySelector(".calc-value").textContent]))
+  );
+  const money = (t) => (t.startsWith("−") ? -1 : 1) * num(t.replace(/^[+−]/, ""));
+  const income = money(calc["Income expected"]);
+  const expected = -money(calc["Payments expected"]);
+  const left = money(calc["Left at period end"]);
+  const balance = money(calc["Balance now"]);
+  assert.equal(money(calc["Available to spend"]), num(amount));
+  assert.equal(await page.locator("#available-summary .calc-total").count(), 2);
+  const closingNote = await page.textContent('#available-summary .calc-note:has-text("if all goes to plan")');
+  const surplus = num(closingNote.split(": ")[1].replace(/\.$/, ""));
+  assert.match(await page.textContent("#available-sub"), /^Next 3 months · until \d{1,2} \w+/);
   assert.equal(Math.round((income - expected) * 100), Math.round(left * 100));
   assert.equal(Math.round((balance + income - expected) * 100), Math.round(surplus * 100));
   // The surplus is the forecast's closing balance.
