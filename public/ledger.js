@@ -570,8 +570,11 @@ export function forecastEnd(today, months = FORECAST_MONTHS) {
 // `months` times besides that (at a month end the window can reach a 4th day, e.g. 31 Jan → 30 Apr).
 export function planDates(plan, today, months = FORECAST_MONTHS) {
   const until = addDays(forecastEnd(today, months), 1);
-  const dates = planOccurrences(plan, today, until).filter((d, i, all) => d !== today || all.indexOf(today) === i);
-  return plan.repeat === "monthly" ? dates.slice(0, months + (plan.nextDate < today ? 1 : 0)) : dates;
+  // Past dates collapse into one "due today"; a date that really falls on today stays its own.
+  const raw = planOccurrences(plan, "", until);
+  const ahead = raw.filter((d) => d >= today);
+  const dates = plan.repeat === "monthly" ? ahead.slice(0, months) : ahead;
+  return raw.length > ahead.length ? [today, ...dates] : dates;
 }
 
 // Forecast from today to forecastEnd(today, months), one row per (part of a) calendar month.
@@ -660,6 +663,15 @@ export function cashflowForecast(entries, budgets, plans, today, months = FORECA
 // The surplus after every entry in the forecast: current balance + expected income − expected
 // payments over the next FORECAST_MONTHS months (= the forecast's closing balance). Also reports
 // the lowest month-end balance, in case money runs short before later income arrives.
+// Available to spend = current balance × surplus at the period end ÷ the period's income: the share
+// of today's money that the forecast leaves free. Never more than the balance. With no income ahead
+// it is the surplus itself (already ≤ the balance); a shortfall (surplus ≤ 0) shows as it is.
+export function spendable(balance, surplus, income) {
+  if (surplus <= 0 || balance <= 0) return round(Math.min(surplus, balance));
+  const share = income > 0 ? (balance * surplus) / income : surplus;
+  return round(Math.min(share, balance));
+}
+
 export function availableToSpend(entries, budgets, plans, today, autoLines = [], months = FORECAST_MONTHS) {
   const f = cashflowForecast(entries, budgets, plans, today, months, autoLines);
   const byCategory = new Map();
@@ -681,11 +693,13 @@ export function availableToSpend(entries, budgets, plans, today, autoLines = [],
     balance: f.start,
     date: today,
   });
+  const surplus = f.rows.length ? f.rows[f.rows.length - 1].balance : f.start;
   return {
     balance: f.start,
     income,
     expected,
-    available: f.rows.length ? f.rows[f.rows.length - 1].balance : f.start,
+    surplus,
+    available: spendable(f.start, surplus, income),
     until: f.end,
     lowest,
     rows,

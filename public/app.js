@@ -1548,7 +1548,7 @@ function renderAvailable() {
   // Each part stays on one line when the text wraps ("+₹1,20,000 in" never splits after the sign).
   const meta = document.getElementById("available-meta");
   meta.innerHTML = "";
-  const parts = [`after everything until ${shortDate(a.until)}`, `+${currency.format(a.income)} in`, `−${currency.format(a.expected)} out`];
+  const parts = [`surplus ${currency.format(a.surplus)} on ${shortDate(a.until)}`, `+${currency.format(a.income)} in`, `−${currency.format(a.expected)} out`];
   if (dip) parts.push(dip.slice(3));
   parts.forEach((text, i) => {
     if (i) meta.append(" · ");
@@ -1557,8 +1557,15 @@ function renderAvailable() {
 
   // Breakdown on the Budget screen.
   document.getElementById("available-title").textContent = `Available to spend (until ${shortDate(a.until)})`;
-  document.getElementById("available-summary").textContent =
-    `${currency.format(a.balance)} balance + ${currency.format(a.income)} income − ${currency.format(a.expected)} payments = ${currency.format(a.available)}`;
+  const surplusText = `Surplus: ${currency.format(a.balance)} balance + ${currency.format(a.income)} income − ${currency.format(a.expected)} payments = ${currency.format(a.surplus)}.`;
+  const share =
+    a.surplus > 0 && a.balance > 0 && a.income > 0
+      ? `Available: ${currency.format(a.balance)} balance × ${currency.format(a.surplus)} surplus ÷ ${currency.format(a.income)} income = ${currency.format(a.available)}` +
+        (a.available === a.balance && (a.balance * a.surplus) / a.income > a.balance ? " (capped at your balance)." : ".")
+      : `Available: ${currency.format(a.available)}${a.surplus > 0 ? " (no income expected, so the surplus itself, up to your balance)" : ""}.`;
+  const summaryEl = document.getElementById("available-summary");
+  summaryEl.innerHTML = "";
+  summaryEl.append(el("span", "summary-line", surplusText), el("span", "summary-line", share));
   const listEl = document.getElementById("available-list");
   listEl.innerHTML = "";
   if (a.income > 0) {

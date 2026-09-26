@@ -822,13 +822,13 @@ test("R33/R34: old Shopping and Travel entries keep their name and icon and open
   await screen("");
 });
 
-test("R36: the home page shows funds available to spend after everything in the 3-month forecast", { skip }, async () => {
+test("R36: the home page shows available to spend = balance × surplus ÷ income, never above the balance", { skip }, async () => {
   await screen("");
   const num = (t) => Number(t.replace(/[^\d.-]/g, "").replace(/^-?/, (m) => m));
   const amount = await page.textContent("#available-amount");
   assert.match(amount, /^-?₹[\d,]+\.\d\d$/);
   const meta = await page.textContent("#available-meta");
-  assert.match(meta, /^after everything until \d{1,2} \w+ · \+₹[\d,.]+ in · −₹[\d,.]+ out/);
+  assert.match(meta, /^surplus -?₹[\d,.]+ on \d{1,2} \w+ · \+₹[\d,.]+ in · −₹[\d,.]+ out/);
   // Smaller than the current balance, but on the same card.
   const sizes = await page.evaluate(() => [
     parseFloat(getComputedStyle(document.getElementById("balance")).fontSize),
@@ -838,13 +838,17 @@ test("R36: the home page shows funds available to spend after everything in the 
 
   await page.tap("#available");
   await page.waitForSelector("#screen-budget:not([hidden])");
-  const summary = await page.textContent("#available-summary");
-  const [balance, income, expected, available] = summary.split(/ balance \+ | income − | payments = /).map(num);
-  assert.equal(Math.round((balance + income - expected) * 100), Math.round(available * 100));
-  // It equals the forecast's closing balance.
+  const [surplusLine] = await page.$$eval("#available-summary .summary-line", (els) => els.map((e) => e.textContent));
+  const [balance, income, expected, surplus] = surplusLine.replace(/^Surplus: /, "").replace(/\.$/, "").split(/ balance \+ | income − | payments = /).map(num);
+  assert.equal(Math.round((balance + income - expected) * 100), Math.round(surplus * 100));
+  // The surplus is the forecast's closing balance.
   const lastRow = await page.$$eval("#forecast-table tbody tr", (trs) => trs[trs.length - 1].lastElementChild.textContent);
-  assert.equal(Math.round(num(lastRow)), Math.round(available));
-  assert.equal(num(amount), available);
+  assert.equal(Math.round(num(lastRow)), Math.round(surplus));
+  // Available = balance × surplus ÷ income, at most the balance.
+  const available = num(amount);
+  const share = surplus <= 0 || balance <= 0 ? Math.min(surplus, balance) : Math.min(balance, income > 0 ? (balance * surplus) / income : surplus);
+  assert.equal(Math.round(available * 100), Math.round(share * 100));
+  assert.ok(available <= balance);
   assert.equal(num(await page.textContent("#balance")), balance);
   const rows = await page.$$eval("#available-list .report-row .entry-amount.expense", (els) => els.map((e) => e.textContent));
   assert.equal(Math.round(rows.reduce((s, t) => s + num(t.replace("−", "")), 0) * 100), Math.round(expected * 100));

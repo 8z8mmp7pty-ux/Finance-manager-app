@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
   budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
-  autoNtorqPlans, autoPlans, availableToSpend, forecastEnd, planDates } from "../public/ledger.js";
+  autoNtorqPlans, autoPlans, availableToSpend, spendable, forecastEnd, planDates } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -573,7 +573,7 @@ test("R36: the forecast covers today to the same date 3 months ahead, month by m
   assert.deepEqual(f.rows.map((r) => r.expense), [3100, 3100, 3100, 2500]);
 });
 
-test("R36: available = balance + every expected income − every expected payment over the forecast", () => {
+test("R36: surplus = balance + every expected income − every expected payment; available never exceeds the balance", () => {
   const today = "2026-09-26";
   const entries = [income("2026-09-01", "Salary", 60000), expense("2026-09-10", "Mandatory Food", 2000)]; // balance 58,000
   const budgets = [{ category: "Mandatory Food", amount: 6000 }];
@@ -587,8 +587,32 @@ test("R36: available = balance + every expected income − every expected paymen
   assert.equal(a.income, 180000);
   assert.deepEqual(a.rows.map((r) => [r.category, r.expected]), [["Mandatory Food", 20838.71], ["Ntorq", 1500]]);
   assert.equal(a.expected, 22338.71);
-  assert.equal(a.available, 58000 + 180000 - 22338.71);
+  assert.equal(a.surplus, 58000 + 180000 - 22338.71);
+  // 58,000 × 2,15,661.29 ÷ 1,80,000 = 69,491.97 is more than the balance: capped at 58,000.
+  assert.equal(a.available, 58000);
   assert.equal(a.until, "2026-12-25");
+});
+
+test("R36: available = current balance × surplus at the period end ÷ the period's income", () => {
+  const today = "2026-09-26";
+  const entries = [income("2026-09-01", "Salary", 20000)]; // balance 20,000
+  const plans = [
+    { type: "income", category: "Salary", amount: 50000, nextDate: "2026-10-01", repeat: "monthly", day: 1 }, // 3 × 50,000
+    { type: "expense", category: "For Mom, Dad, Muthu", amount: 40000, nextDate: "2026-10-02", repeat: "monthly", day: 2 }, // 3 × 40,000
+  ];
+  const a = availableToSpend(entries, [], plans, today, []);
+  assert.deepEqual([a.balance, a.income, a.expected, a.surplus], [20000, 150000, 120000, 50000]);
+  assert.equal(a.available, 6666.67); // 20,000 × 50,000 ÷ 1,50,000
+  assert.ok(a.available <= a.balance);
+});
+
+test("R36: available with no income ahead, a shortfall, or an empty balance", () => {
+  assert.equal(spendable(20000, 15000, 0), 15000, "no income: the surplus itself");
+  assert.equal(spendable(20000, 25000, 0), 20000, "never above the balance");
+  assert.equal(spendable(20000, -5000, 100000), -5000, "a shortfall shows as it is");
+  assert.equal(spendable(0, 10000, 50000), 0, "nothing in hand: nothing to spend yet");
+  assert.equal(spendable(-3000, 10000, 50000), -3000);
+  assert.equal(spendable(10000, 10000, 100000), 1000);
 });
 
 test("R36: budget and planned are compared month by month; the lowest point is reported", () => {
@@ -678,6 +702,9 @@ test("R38: an overdue expense plan counts once, as due today", () => {
   const bill = { type: "expense", category: "Bills & Utilities", amount: 800, nextDate: "2026-07-10", repeat: "monthly", day: 10 };
   assert.deepEqual(planDates(bill, today), [today, "2026-10-10", "2026-11-10", "2026-12-10"]);
   assert.equal(availableToSpend([], [], [bill], today).expected, 3200);
+  // Overdue on the same day of the month as today: last month's payment and today's are both due.
+  const rent = { ...bill, nextDate: "2026-08-26", day: 26 };
+  assert.deepEqual(planDates(rent, today), [today, today, "2026-10-26", "2026-11-26"]);
   const once = { ...bill, repeat: "once" };
   assert.deepEqual(planDates(once, today), [today]);
 });
