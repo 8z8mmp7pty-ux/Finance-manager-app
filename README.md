@@ -5,7 +5,7 @@ Entries are stored in a **PostgreSQL** database (open source), so they are avail
 
 - Add income or expense entries (description, amount, date)
 - See total income, total expenses and current balance
-- Delete entries
+- Entries shown as tap cards: tap a card to edit or delete it
 - Protected by a password (`APP_PASSWORD`)
 
 ## Project structure

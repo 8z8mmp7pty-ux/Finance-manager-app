@@ -93,6 +93,15 @@ function render() {
 
   for (const entry of entries) {
     const li = document.createElement("li");
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "entry-card " + entry.type;
+    card.setAttribute("aria-label", `${entry.description}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
+
+    const icon = document.createElement("span");
+    icon.className = "type-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = entry.type === "income" ? "↓" : "↑";
 
     const info = document.createElement("div");
     info.className = "entry-info";
@@ -110,26 +119,9 @@ function render() {
     amount.className = "entry-amount " + entry.type;
     amount.textContent = (entry.type === "income" ? "+" : "−") + currency.format(entry.amount);
 
-    const del = document.createElement("button");
-    del.className = "delete";
-    del.title = "Delete entry";
-    del.setAttribute("aria-label", "Delete " + entry.description);
-    del.textContent = "✕";
-    del.addEventListener("click", async () => {
-      if (!confirm(`Delete "${entry.description}"?`)) return;
-      del.disabled = true;
-      try {
-        await api("DELETE", "?id=" + encodeURIComponent(entry.id));
-        entries = entries.filter((e) => e.id !== entry.id);
-        showStatus("");
-        render();
-      } catch (err) {
-        del.disabled = false;
-        handleError(err);
-      }
-    });
-
-    li.append(info, amount, del);
+    card.append(icon, info, amount);
+    card.addEventListener("click", () => openEditor(entry));
+    li.append(card);
     list.append(li);
   }
 
@@ -202,6 +194,83 @@ form.addEventListener("submit", async (event) => {
     handleError(err);
   } finally {
     submitBtn.disabled = false;
+  }
+});
+
+// Edit sheet
+const editDialog = document.getElementById("edit-dialog");
+const editForm = document.getElementById("edit-form");
+const editDescription = document.getElementById("edit-description");
+const editAmount = document.getElementById("edit-amount");
+const editDate = document.getElementById("edit-date");
+const editSave = document.getElementById("edit-save");
+const editDelete = document.getElementById("edit-delete");
+let editingId = null;
+
+function openEditor(entry) {
+  editingId = entry.id;
+  editForm.elements.type.value = entry.type;
+  editDescription.value = entry.description;
+  editAmount.value = entry.amount;
+  editDate.value = entry.date;
+  editSave.disabled = false;
+  editDelete.disabled = false;
+  editDialog.showModal();
+}
+
+function closeEditor() {
+  editingId = null;
+  editDialog.close();
+}
+
+document.getElementById("edit-close").addEventListener("click", closeEditor);
+
+// Tap outside the sheet to close it.
+editDialog.addEventListener("click", (event) => {
+  if (event.target === editDialog) closeEditor();
+});
+
+editForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const amount = Math.round(parseFloat(editAmount.value) * 100) / 100;
+  const description = editDescription.value.trim();
+  if (!description || !(amount > 0) || editingId === null) return;
+
+  editSave.disabled = true;
+  try {
+    const updated = await api("PUT", "?id=" + encodeURIComponent(editingId), {
+      type: editForm.elements.type.value,
+      description,
+      amount,
+      date: editDate.value,
+    });
+    entries = entries.map((e) => (e.id === updated.id ? updated : e));
+    sortEntries();
+    showStatus("");
+    render();
+    closeEditor();
+  } catch (err) {
+    editSave.disabled = false;
+    closeEditor();
+    handleError(err);
+  }
+});
+
+editDelete.addEventListener("click", async () => {
+  const entry = entries.find((e) => e.id === editingId);
+  if (!entry || !confirm(`Delete "${entry.description}"?`)) return;
+
+  editDelete.disabled = true;
+  try {
+    await api("DELETE", "?id=" + encodeURIComponent(entry.id));
+    entries = entries.filter((e) => e.id !== entry.id);
+    showStatus("");
+    render();
+    closeEditor();
+  } catch (err) {
+    editDelete.disabled = false;
+    closeEditor();
+    handleError(err);
   }
 });
 

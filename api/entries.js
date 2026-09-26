@@ -69,14 +69,35 @@ export default async function handler(req, res) {
       return send(res, 201, rows[0]);
     }
 
+    const id = new URL(req.url, "http://localhost").searchParams.get("id");
+
+    if (req.method === "PUT") {
+      if (!/^\d+$/.test(id || "")) return send(res, 400, { error: "Invalid id" });
+      let body;
+      try {
+        body = await readBody(req);
+      } catch {
+        return send(res, 400, { error: "Invalid JSON" });
+      }
+      const entry = validate(body || {});
+      if (typeof entry === "string") return send(res, 400, { error: entry });
+
+      const { rows } = await query(
+        `UPDATE entries SET type = $1, description = $2, amount = $3, entry_date = $4
+         WHERE id = $5
+         RETURNING ${SELECT_COLUMNS}`,
+        [entry.type, entry.description, entry.amount, entry.date, id]
+      );
+      return rows.length ? send(res, 200, rows[0]) : send(res, 404, { error: "Entry not found" });
+    }
+
     if (req.method === "DELETE") {
-      const id = new URL(req.url, "http://localhost").searchParams.get("id");
       if (!/^\d+$/.test(id || "")) return send(res, 400, { error: "Invalid id" });
       const { rowCount } = await query("DELETE FROM entries WHERE id = $1", [id]);
       return rowCount ? send(res, 200, { ok: true }) : send(res, 404, { error: "Entry not found" });
     }
 
-    res.setHeader("Allow", "GET, POST, DELETE");
+    res.setHeader("Allow", "GET, POST, PUT, DELETE");
     return send(res, 405, { error: "Method not allowed" });
   } catch (err) {
     console.error(err);
