@@ -12,7 +12,7 @@ Entries are stored in a **PostgreSQL** database (open source), so they are avail
 
 ```
 public/          Static frontend (HTML, CSS, JS)
-api/entries.js   Serverless API: GET / POST / DELETE entries
+api/entries.js   Serverless API: GET / POST / PUT / DELETE entries
 lib/db.js        PostgreSQL connection (creates the `entries` table automatically)
 lib/auth.js      Password check
 dev-server.js    Local development server
