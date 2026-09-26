@@ -20,6 +20,7 @@ import {
   forecastEnd,
   FORECAST_MONTHS,
   planDates,
+  availableExplanation,
   UNCATEGORISED,
   autoPlans as autoPlanLines,
   SUBCATEGORIES,
@@ -1531,7 +1532,7 @@ function renderGrid() {
 
 reportBack.addEventListener("click", () => showReportStage(REPORT_BACK[report.stage] || "menu"));
 
-// ---------- Available to spend until next salary ----------
+// ---------- Available to spend: the balance's share of the 3-month surplus ----------
 
 function shortDate(date) {
   return new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -1557,15 +1558,9 @@ function renderAvailable() {
 
   // Breakdown on the Budget screen.
   document.getElementById("available-title").textContent = `Available to spend (until ${shortDate(a.until)})`;
-  const surplusText = `Surplus: ${currency.format(a.balance)} balance + ${currency.format(a.income)} income − ${currency.format(a.expected)} payments = ${currency.format(a.surplus)}.`;
-  const share =
-    a.surplus > 0 && a.balance > 0 && a.income > 0
-      ? `Available: ${currency.format(a.balance)} balance × ${currency.format(a.surplus)} surplus ÷ ${currency.format(a.income)} income = ${currency.format(a.available)}` +
-        (a.available === a.balance && (a.balance * a.surplus) / a.income > a.balance ? " (capped at your balance)." : ".")
-      : `Available: ${currency.format(a.available)}${a.surplus > 0 ? " (no income expected, so the surplus itself, up to your balance)" : ""}.`;
   const summaryEl = document.getElementById("available-summary");
   summaryEl.innerHTML = "";
-  summaryEl.append(el("span", "summary-line", surplusText), el("span", "summary-line", share));
+  for (const line of availableExplanation(a, (n) => currency.format(n))) summaryEl.append(el("span", "summary-line", line));
   const listEl = document.getElementById("available-list");
   listEl.innerHTML = "";
   if (a.income > 0) {
@@ -1662,7 +1657,7 @@ function renderBudget() {
     const when = overdue ? "due " + formatDate(plan.nextDate) : date === today() ? "due today" : formatDate(date);
     const repeat = plan.repeat === "monthly" ? (line.of > 1 ? `every month · ${line.n} of ${line.of}` : "every month") : "one time";
     const meta = [when, repeat, plan.description, line.beyond ? "after the 3-month forecast" : ""].filter(Boolean);
-    info.append(el("p", "entry-desc", plan.category), el("p", "entry-date" + (line.first && date <= today() ? " due" : ""), meta.join(" · ")));
+    info.append(el("p", "entry-desc", plan.category), el("p", "entry-date" + (date <= today() ? " due" : ""), meta.join(" · ")));
     const sign = plan.type === "income" ? "+" : "−";
     btn.append(el("span", "row-icon", categoryIcon(plan.type, plan.category)), info, el("span", "entry-amount " + plan.type, sign + currency.format(plan.amount)));
     btn.addEventListener("click", () => openPlan(plan));

@@ -660,9 +660,6 @@ export function cashflowForecast(entries, budgets, plans, today, months = FORECA
 
 // ---------- Available to spend ----------
 
-// The surplus after every entry in the forecast: current balance + expected income − expected
-// payments over the next FORECAST_MONTHS months (= the forecast's closing balance). Also reports
-// the lowest month-end balance, in case money runs short before later income arrives.
 // Available to spend = current balance × surplus at the period end ÷ the period's income: the share
 // of today's money that the forecast leaves free. Never more than the balance. With no income ahead
 // it is the surplus itself (already ≤ the balance); a shortfall (surplus ≤ 0) shows as it is.
@@ -672,6 +669,29 @@ export function spendable(balance, surplus, income) {
   return round(Math.min(share, balance));
 }
 
+// The two lines explaining Available to spend (Budget screen), formatted with `money`.
+export function availableExplanation(a, money) {
+  const surplus = `Surplus: ${money(a.balance)} balance + ${money(a.income)} income − ${money(a.expected)} payments = ${money(a.surplus)}.`;
+  if (a.surplus > 0 && a.balance > 0 && a.income > 0) {
+    const capped = (a.balance * a.surplus) / a.income > a.balance;
+    return [
+      surplus,
+      `Available: ${money(a.balance)} balance × ${money(a.surplus)} surplus ÷ ${money(a.income)} income = ${money(a.available)}${capped ? " (capped at your balance)" : ""}.`,
+    ];
+  }
+  const why =
+    a.balance <= 0
+      ? "nothing in hand yet"
+      : a.surplus <= 0
+        ? "payments are more than balance + income"
+        : "no income expected, so the surplus itself, up to your balance";
+  return [surplus, `Available: ${money(a.available)} (${why}).`];
+}
+
+// The surplus after every entry in the forecast: current balance + expected income − expected
+// payments over the next FORECAST_MONTHS months (= the forecast's closing balance), and what is
+// available to spend from it (spendable). Also reports the lowest month-end balance, in case money
+// runs short before later income arrives.
 export function availableToSpend(entries, budgets, plans, today, autoLines = [], months = FORECAST_MONTHS) {
   const f = cashflowForecast(entries, budgets, plans, today, months, autoLines);
   const byCategory = new Map();

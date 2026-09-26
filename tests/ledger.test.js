@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
   budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
-  autoNtorqPlans, autoPlans, availableToSpend, spendable, forecastEnd, planDates } from "../public/ledger.js";
+  autoNtorqPlans, autoPlans, availableToSpend, spendable, availableExplanation, forecastEnd, planDates } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -556,7 +556,7 @@ test("R34: Education and Entertainment auto amounts land in the forecast month b
   assert.ok(f.rows[1].expense > f.rows[0].expense * 5);
 });
 
-// ---------- Available to spend = surplus after the 3-month forecast (R36) ----------
+// ---------- Available to spend = balance × surplus ÷ income over the 3-month forecast (R36) ----------
 
 test("R36: the forecast covers today to the same date 3 months ahead, month by month", () => {
   assert.equal(forecastEnd("2026-09-26"), "2026-12-25");
@@ -613,6 +613,27 @@ test("R36: available with no income ahead, a shortfall, or an empty balance", ()
   assert.equal(spendable(0, 10000, 50000), 0, "nothing in hand: nothing to spend yet");
   assert.equal(spendable(-3000, 10000, 50000), -3000);
   assert.equal(spendable(10000, 10000, 100000), 1000);
+  // Nothing in hand yet, though income is coming: 0.
+  const salary = { type: "income", category: "Salary", amount: 50000, nextDate: "2026-10-01", repeat: "monthly", day: 1 };
+  const a = availableToSpend([], [], [salary], "2026-09-26");
+  assert.deepEqual([a.balance, a.income, a.surplus, a.available], [0, 150000, 150000, 0]);
+});
+
+test("R36: the breakdown explains each case truthfully", () => {
+  const money = (n) => "₹" + n;
+  const explain = (balance, income, expected) => {
+    const surplus = balance + income - expected;
+    return availableExplanation({ balance, income, expected, surplus, available: spendable(balance, surplus, income) }, money)[1];
+  };
+  assert.equal(explain(20000, 150000, 120000), "Available: ₹20000 balance × ₹50000 surplus ÷ ₹150000 income = ₹6666.67.");
+  assert.equal(explain(58000, 180000, 9200), "Available: ₹58000 balance × ₹228800 surplus ÷ ₹180000 income = ₹58000 (capped at your balance).");
+  assert.equal(explain(0, 150000, 0), "Available: ₹0 (nothing in hand yet).");
+  assert.equal(explain(20000, 0, 1000), "Available: ₹19000 (no income expected, so the surplus itself, up to your balance).");
+  assert.equal(explain(20000, 10000, 55000), "Available: ₹-25000 (payments are more than balance + income).");
+  assert.equal(
+    availableExplanation({ balance: 1, income: 2, expected: 3, surplus: 0, available: 0 }, money)[0],
+    "Surplus: ₹1 balance + ₹2 income − ₹3 payments = ₹0."
+  );
 });
 
 test("R36: budget and planned are compared month by month; the lowest point is reported", () => {
