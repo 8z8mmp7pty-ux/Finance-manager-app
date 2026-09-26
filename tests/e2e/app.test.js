@@ -210,3 +210,39 @@ test("R20: grid report of reserves × accounts adds up", { skip }, async () => {
   assert.deepEqual(total, ["Total", "₹41,300", "-₹300", "₹5,000", "₹46,000"]);
   await page.tap("#report-back");
 });
+
+test("R11: 'Transfer all' moves the whole reserve even when it is split across accounts", { skip }, async () => {
+  // Salary money in two accounts: 1,000 in Cash and 2,000 in Super Money.
+  await page.tap(".type-card[data-flow=income]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Salary")');
+  await settle();
+  await page.tap('#account-chips .chip:has-text("Cash")');
+  await page.fill("#amount", "1000");
+  await page.tap("#post-btn");
+  await cards(11);
+  await addEntry("income", "Salary", 2000);
+  await cards(12);
+  assert.equal(await reserve("Salary"), "₹3,000.00");
+
+  await page.tap('.reserve-card[aria-label^="Salary"]');
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("General Reserve")');
+  await settle();
+  await page.tap("#transfer-all");
+  assert.equal(await page.inputValue("#amount"), "3000.00");
+  assert.match(await page.textContent("#available-text"), /Super Money ₹2,000\.00 \+ Cash ₹1,000\.00/);
+  await page.tap("#post-btn");
+  await cards(14);
+  assert.match(await page.textContent("#posted"), /Moved all ₹3,000\.00 to General Reserve \(from 2 accounts\)/);
+  assert.equal(await reserve("Salary"), "₹0.00");
+  assert.equal(await page.textContent("#balance"), "₹49,000.00");
+
+  await page.tap("#report .grid-card");
+  const rows = await page.$$eval(".grid-table tr", (trs) =>
+    trs.map((tr) => [...tr.children].map((c) => c.innerText.replace(/\s+/g, " ").trim()))
+  );
+  const salary = rows.find((r) => r[0].includes("Salary"));
+  assert.deepEqual(salary.slice(1), ["–", "–", "–", "–"], "no Salary money left in any account");
+  await page.tap("#report-back");
+});

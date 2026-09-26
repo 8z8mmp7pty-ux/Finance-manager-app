@@ -92,6 +92,13 @@ test("R19: contra entries move money between two different accounts", { skip }, 
   assert.equal((await post({ ...base, type: "contra", account: "Cash", amount: 1 })).status, 400);
 });
 
+test("R17: only the known accounts are accepted (a typo can't create a new account)", { skip }, async () => {
+  const typo = await post({ ...base, type: "expense", category: "Rent", account: "Supermoney", amount: 1 });
+  assert.equal(typo.status, 400);
+  assert.match(typo.data.error, /Super Money, GPay, Cash/);
+  assert.equal((await post({ ...base, type: "contra", account: "Cash", toAccount: "Wallet", amount: 1 })).status, 400);
+});
+
 test("R1: invalid entries are rejected", { skip }, async () => {
   for (const body of [
     { ...base, type: "loan", category: "Salary", amount: 1 },

@@ -1,4 +1,4 @@
-import { query, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT } from "../lib/db.js";
+import { query, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT, ACCOUNTS } from "../lib/db.js";
 
 function send(res, status, data) {
   res.statusCode = status;
@@ -37,6 +37,10 @@ function validate(body) {
   if (description.length > 100) return "Note is too long (max 100 characters)";
   if ([category, reserve, toReserve, account, toAccount].some((v) => v.length > 40)) {
     return "Names are limited to 40 characters";
+  }
+
+  if (!ACCOUNTS.includes(account) || (toAccount && !ACCOUNTS.includes(toAccount))) {
+    return "Account must be one of: " + ACCOUNTS.join(", ");
   }
 
   if (type === "contra") {

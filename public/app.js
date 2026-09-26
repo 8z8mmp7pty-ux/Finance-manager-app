@@ -334,6 +334,7 @@ const moveAllBtn = document.getElementById("transfer-all");
 const EMPTY_DRAFT = {
   flow: null, index: 0, category: null, reserve: GENERAL, from: null, to: null,
   account: DEFAULT_ACCOUNT, fromAccount: null, toAccount: null,
+  transferAll: false, // "Transfer all": move the reserve's money out of every account that holds it
 };
 const draft = { ...EMPTY_DRAFT };
 let postedTimer;
@@ -342,6 +343,11 @@ function goToStage(stage, direction = "forward") {
   const stages = draft.flow ? FLOWS[draft.flow] : ["type", "category", "amount"];
   draft.index = stages.indexOf(stage);
   const panel = stage === "type" ? "type" : stage === "amount" ? "amount" : "pick";
+  if (stage !== "amount" && draft.transferAll) {
+    // Leaving the amount step cancels "Transfer all" (the reserves may change).
+    draft.transferAll = false;
+    amountInput.value = "";
+  }
 
   stepPanels.forEach((p) => {
     const active = p.dataset.step === panel;
@@ -427,6 +433,14 @@ function renderPickCards(items, onPick) {
   }
 }
 
+// Where a reserve's money is kept: accounts holding a positive amount of it.
+function reserveSplit(reserve) {
+  const grid = reserveAccountGrid(entries);
+  return grid.accounts
+    .map((account) => ({ account, amount: grid.cell(reserve, account) }))
+    .filter((p) => p.amount > 0.004);
+}
+
 // How much "Transfer all" / "Move all" can move for the current draft.
 function draftAvailable() {
   if (draft.flow === "transfer") return cellBalance(draft.from, draft.account);
@@ -470,9 +484,13 @@ function renderAmountChoices() {
     document.getElementById("account-label").textContent =
       flow === "income" ? "Received in account" : flow === "expense" ? "Paid from account" : "In account";
     renderAccountChips(accountChips, {
-      selected: draft.account,
+      selected: draft.transferAll ? null : draft.account,
       onSelect: (name) => {
         draft.account = name;
+        if (draft.transferAll) {
+          draft.transferAll = false;
+          amountInput.value = "";
+        }
         renderAmountChoices();
       },
       amountFor: flow === "transfer" ? (a) => cellBalance(draft.from, a) : undefined,
@@ -493,7 +511,10 @@ function renderAmountChoices() {
     });
   }
 
-  if (flow === "transfer") {
+  if (flow === "transfer" && draft.transferAll) {
+    const parts = reserveSplit(draft.from).map((p) => `${p.account} ${currency.format(p.amount)}`);
+    availableText.textContent = `All of ${draft.from}: ` + (parts.length ? parts.join(" + ") : "nothing to move");
+  } else if (flow === "transfer") {
     availableText.textContent = `${draft.from} money in ${draft.account}: ${currency.format(draftAvailable())}`;
   } else if (flow === "contra") {
     availableText.textContent = `${draft.reserve} money in ${draft.fromAccount}: ${currency.format(draftAvailable())}`;
@@ -505,12 +526,13 @@ function startFlow(flow) {
   draft.flow = flow;
   draft.reserve = GENERAL;
   draft.account = DEFAULT_ACCOUNT;
+  draft.transferAll = false;
   postedMsg.hidden = true;
   goToStage(FLOWS[flow][1]);
 }
 
 function startTransferFrom(name) {
-  Object.assign(draft, { flow: "transfer", from: name, to: null, account: DEFAULT_ACCOUNT });
+  Object.assign(draft, { flow: "transfer", from: name, to: null, account: DEFAULT_ACCOUNT, transferAll: false });
   postedMsg.hidden = true;
   goToStage("to");
   wizard.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -545,15 +567,35 @@ document.getElementById("chosen").addEventListener("click", () => {
 });
 
 moveAllBtn.addEventListener("click", () => {
-  const available = draftAvailable();
-  amountInput.value = available > 0 ? available.toFixed(2) : "";
+  if (draft.flow === "transfer") {
+    // Move the whole reserve, from every account that holds some of it.
+    const total = reserveSplit(draft.from).reduce((s, p) => s + p.amount, 0);
+    draft.transferAll = total > 0;
+    amountInput.value = total > 0 ? total.toFixed(2) : "";
+    renderAmountChoices();
+  } else {
+    const available = draftAvailable();
+    amountInput.value = available > 0 ? available.toFixed(2) : "";
+  }
   amountInput.focus();
+});
+
+// Typing an amount by hand means a normal transfer from the selected account.
+amountInput.addEventListener("input", () => {
+  if (draft.transferAll) {
+    draft.transferAll = false;
+    renderAmountChoices();
+  }
 });
 
 amountForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const amount = parseAmount(amountInput.value);
   if (!(amount > 0) || !draft.flow) return;
+
+  if (draft.flow === "transfer" && draft.transferAll) {
+    return postTransferAll();
+  }
 
   let body;
   if (draft.flow === "transfer" || draft.flow === "contra") {
@@ -581,22 +623,55 @@ amountForm.addEventListener("submit", async (event) => {
     showStatus("");
     render();
 
-    postedMsg.textContent = {
+    showPosted({
       transfer: () => `✓ Moved ${currency.format(created.amount)} to ${created.toReserve}`,
       contra: () => `✓ Moved ${currency.format(created.amount)} from ${created.account} to ${created.toAccount}`,
       income: () => `✓ Added to ${reserveLabel(created.reserve)} · ${created.account}`,
       expense: () => `✓ Paid from ${reserveLabel(created.reserve)} · ${created.account}`,
-    }[created.type]();
-    resetWizard();
-    postedMsg.hidden = false;
-    clearTimeout(postedTimer);
-    postedTimer = setTimeout(() => (postedMsg.hidden = true), 3000);
+    }[created.type]());
   } catch (err) {
     showStatus(err.message);
   } finally {
     postBtn.disabled = false;
   }
 });
+
+function showPosted(message) {
+  resetWizard();
+  postedMsg.textContent = message;
+  postedMsg.hidden = false;
+  clearTimeout(postedTimer);
+  postedTimer = setTimeout(() => (postedMsg.hidden = true), 3000);
+}
+
+// "Transfer all": one transfer per account that holds some of the reserve's money.
+async function postTransferAll() {
+  const parts = reserveSplit(draft.from);
+  if (!parts.length || !draft.to) return;
+  const common = { type: "transfer", reserve: draft.from, toReserve: draft.to, description: noteInput.value.trim(), date: dateInput.value || today() };
+
+  postBtn.disabled = true;
+  let moved = 0;
+  try {
+    for (const p of parts) {
+      const created = await api("POST", "", { ...common, account: p.account, amount: p.amount });
+      entries.push(created);
+      moved += created.amount;
+    }
+    sortEntries();
+    showStatus("");
+    render();
+    const from = parts.length > 1 ? ` (from ${parts.length} accounts)` : "";
+    showPosted(`✓ Moved all ${currency.format(moved)} to ${common.toReserve}${from}`);
+  } catch (err) {
+    // Some transfers may have been saved; reload so the screen matches the database.
+    const message = err.message;
+    await loadEntries();
+    showStatus(message);
+  } finally {
+    postBtn.disabled = false;
+  }
+}
 
 // ---------- Edit sheet ----------
 
@@ -661,11 +736,13 @@ function renderEditFields() {
     renderReserveChips(document.getElementById("edit-from-chips"), {
       selected: edit.from,
       skipId,
+      amountFor: (r) => cellBalance(r, edit.account, skipId),
       onSelect: (name) => rerender(() => ({ from: name, to: edit.to === name ? "" : edit.to }))(),
     });
     renderReserveChips(document.getElementById("edit-to-chips"), {
       selected: edit.to,
       skipId,
+      amountFor: (r) => cellBalance(r, edit.account, skipId),
       exclude: edit.from,
       onSelect: (name) => rerender(() => ({ to: name }))(),
     });
