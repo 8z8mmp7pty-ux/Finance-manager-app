@@ -86,3 +86,4 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 - Guardian follow-up for R38: a plan overdue on the same day of the month as today counts both the missed payment and today's (was merged into one).
 - R36 clarified by the owner: "available at period end" is the period's income − its payments (not including the balance), so available = balance × (income − payments) ÷ income, always ≤ the balance (no cap needed).
 - R36 breakdown redesigned at the owner's request: the calculation is shown as two small sums (income − payments = left; balance × share = available), with the forecast's closing balance and payments by category below.
+- R36 breakdown: share shown to two decimals so the sum can be checked by hand; the closing balance never splits across lines.

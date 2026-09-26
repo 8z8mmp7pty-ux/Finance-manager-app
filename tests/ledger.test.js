@@ -636,7 +636,7 @@ test("R36: the breakdown shows the calculation step by step and explains each ca
   ]);
   assert.deepEqual(c.groups[1], [
     { label: "Balance now", amount: 2972 },
-    { label: "× Share of income left", percent: 14.1 },
+    { label: "× Share of income left", percent: 14.1 }, // 14.10%: 8,884.61 ÷ 63,000
     { label: "Available to spend", amount: 419.13, total: true },
   ]);
   assert.equal(c.note, "");
@@ -645,6 +645,9 @@ test("R36: the breakdown shows the calculation step by step and explains each ca
   const note = (b, i, e) => explain(b, i, e).note;
   assert.equal(explain(0, 150000, 0).groups[1].length, 2);
   assert.equal(note(0, 150000, 0), "Nothing in hand yet.");
+  assert.equal(note(-1000, 5000, 4500), "Nothing in hand yet.", "a negative balance, surplus between it and 0");
+  // Two decimals, so balance × share reproduces the amount to within a rupee.
+  assert.equal(explain(58000, 180000, 9200).groups[1][1].percent, 94.89);
   assert.match(note(0, 0, 5000), /shortfall/);
   assert.equal(note(20000, 0, 1000), "No income expected: your balance after the payments.");
   assert.equal(explain(20000, 0, 1000).groups[1][1].amount, 19000);

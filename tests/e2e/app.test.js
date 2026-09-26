@@ -850,7 +850,8 @@ test("R36: the home page shows available to spend = balance × (left ÷ income),
   assert.equal(money(calc["Available to spend"]), num(amount));
   assert.equal(await page.locator("#available-summary .calc-total").count(), 2);
   const closingNote = await page.textContent('#available-summary .calc-note:has-text("if all goes to plan")');
-  const surplus = num(closingNote.split(": ")[1].replace(/\.$/, ""));
+  const closingText = closingNote.split(": ")[1].replace(/\.$/, "");
+  const surplus = (closingText.startsWith("−") ? -1 : 1) * num(closingText);
   assert.match(await page.textContent("#available-sub"), /^Next 3 months · until \d{1,2} \w+/);
   assert.equal(Math.round((income - expected) * 100), Math.round(left * 100));
   assert.equal(Math.round((balance + income - expected) * 100), Math.round(surplus * 100));

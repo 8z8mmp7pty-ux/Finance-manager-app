@@ -1567,7 +1567,7 @@ function renderAvailable() {
     for (const step of group) {
       const row = el("div", "calc-row" + (step.total ? " calc-total" : ""));
       const value =
-        step.percent !== undefined ? step.percent + "%" : (step.sign || (step.amount < 0 ? "−" : "")) + currency.format(Math.abs(step.amount));
+        step.percent !== undefined ? step.percent.toFixed(2) + "%" : (step.sign || (step.amount < 0 ? "−" : "")) + currency.format(Math.abs(step.amount));
       const cls = step.sign === "+" ? " income" : step.sign === "−" || (step.total && step.amount < 0) ? " expense" : "";
       row.append(el("span", "calc-label", step.label), el("span", "calc-value" + cls, value));
       box.append(row);
@@ -1575,7 +1575,9 @@ function renderAvailable() {
     summaryEl.append(box);
   }
   if (calc.note) summaryEl.append(el("p", "calc-note", calc.note));
-  summaryEl.append(el("p", "calc-note", `Balance on ${shortDate(a.until)} if all goes to plan: ${currency.format(calc.closing)}.`));
+  const closing = el("p", "calc-note", `Balance on ${shortDate(a.until)} if all goes to plan: `);
+  closing.append(el("span", "nowrap", (calc.closing < 0 ? "−" : "") + currency.format(Math.abs(calc.closing))), ".");
+  summaryEl.append(closing);
   const listEl = document.getElementById("available-list");
   listEl.innerHTML = "";
   if (!a.rows.length) listEl.append(el("li", "empty", "No payments expected in the forecast."));

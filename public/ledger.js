@@ -679,7 +679,7 @@ export function spendable(balance, income, expected) {
 // where the share can't be used (no income, payments above income, nothing in hand).
 export function availableExplanation(a) {
   const left = round(a.income - a.expected);
-  const share = a.income > 0 ? Math.round((left / a.income) * 1000) / 10 : null;
+  const share = a.income > 0 ? Math.round((left / a.income) * 10000) / 100 : null;
   const first = [
     { label: "Income expected", amount: a.income, sign: "+" },
     { label: "Payments expected", amount: a.expected, sign: "−" },
