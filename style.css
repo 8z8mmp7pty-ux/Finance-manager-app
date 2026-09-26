@@ -1,0 +1,90 @@
+:root {
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --text: #1f2933;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --income: #15803d;
+  --expense: #b91c1c;
+  --accent: #2563eb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111827;
+    --card: #1f2937;
+    --text: #f3f4f6;
+    --muted: #9ca3af;
+    --border: #374151;
+    --income: #4ade80;
+    --expense: #f87171;
+    --accent: #60a5fa;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+.container { max-width: 560px; margin: 0 auto; padding: 24px 16px 40px; }
+h1 { font-size: 1.6rem; margin: 0 0 16px; }
+h2 { font-size: 1.1rem; margin: 0 0 12px; }
+.card, .balance-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.balance-card { text-align: center; }
+.label { color: var(--muted); font-size: 0.85rem; margin: 0; display: block; }
+.balance { font-size: 2.2rem; font-weight: 700; margin: 4px 0 12px; }
+.totals { display: flex; justify-content: space-around; gap: 12px; }
+.totals span:last-child { font-weight: 600; font-size: 1.1rem; }
+.income { color: var(--income); }
+.expense { color: var(--expense); }
+form { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; gap: 10px; }
+.row input { flex: 1; min-width: 0; }
+.type-toggle { display: flex; gap: 20px; }
+input[type="text"], input[type="number"], input[type="date"] {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+button {
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+ul { list-style: none; margin: 0; padding: 0; }
+li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+li:last-child { border-bottom: none; }
+.entry-info { flex: 1; min-width: 0; }
+.entry-desc { margin: 0; overflow-wrap: anywhere; }
+.entry-date { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
+.entry-amount { font-weight: 600; white-space: nowrap; }
+.delete {
+  background: transparent;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 1.1rem;
+}
+.delete:hover { color: var(--expense); }
+.empty, .note { color: var(--muted); text-align: center; }
+.note { font-size: 0.8rem; }
