@@ -999,4 +999,19 @@ test("R41: Add Entry is a popup from the + button; a tap outside closes it, or p
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   assert.ok(await addOpen(), "opens when the app is opened again");
   await closeAdd();
+
+  // Reopened from the home-screen shortcut after closing the browser: a fresh load opens it …
+  await page.reload();
+  await page.waitForSelector("#app:not([hidden])");
+  assert.ok(await addOpen(), "opens on a fresh load");
+  // … and so does a page restored from the browser's cache, with a fresh entry.
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+  assert.ok(await addOpen());
+  assert.ok(await page.isVisible('.step[data-step="type"]'), "starts a fresh entry");
+  await closeAdd();
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+  assert.ok(await addOpen(), "opens when restored from the cache");
+  await closeAdd();
 });

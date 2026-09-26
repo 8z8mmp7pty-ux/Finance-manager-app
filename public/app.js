@@ -803,6 +803,12 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !appSection.hidden && !document.querySelector("dialog[open]")) openAdd();
 });
 
+// Reopening from a home-screen shortcut after closing the browser can bring the page back from the
+// browser's cache without loading it again: open the popup then too, with a fresh entry.
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted && !appSection.hidden && !document.querySelector("dialog[open]:not(#add-dialog)")) openAdd();
+});
+
 function resetWizard() {
   amountInput.value = "";
   noteInput.value = "";
