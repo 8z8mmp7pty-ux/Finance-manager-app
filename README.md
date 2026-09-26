@@ -3,7 +3,7 @@
 A simple personal finance manager: record income and expense entries and see your current balance.
 Entries are stored in a **PostgreSQL** database (open source), so they are available on every device.
 
-- Add entries step by step with tap cards: Income or Expense → category (Salary, Rent, Groceries…) → amount → Post
+- Add entries step by step with tap cards: Income or Expense → category (Salary, Groceries, Ntorq…) → amount → Post
 - See total income, total expenses and current balance
 - Reserves (buckets): every income type pours into its own reserve (e.g. Salary Reserve),
   plus a General Reserve. Expenses are paid from General Reserve by default, or from any reserve you pick.

@@ -39,9 +39,14 @@ const CATEGORIES = {
 
 const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra" };
 
+// Icons for categories that were replaced, so entries saved with them keep their look.
+const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳" };
+
 function categoryIcon(type, name) {
   const found = (CATEGORIES[type] || []).find((c) => c.name === name);
-  return found ? found.icon : type === "income" ? "↓" : type === "expense" ? "↑" : "⇄";
+  if (found) return found.icon;
+  if (type === "expense" && RETIRED_ICONS[name]) return RETIRED_ICONS[name];
+  return type === "income" ? "↓" : type === "expense" ? "↑" : "⇄";
 }
 
 function reserveIcon(name) {
@@ -777,7 +782,13 @@ function renderEditFields() {
 
   const type = editForm.elements.type.value;
   editCategories.innerHTML = "";
-  for (const cat of CATEGORIES[type]) {
+  // An entry saved with a category that no longer has a card (e.g. "Rent") shows it as an
+  // extra, selected card so it is clear what the entry is; picking another card replaces it.
+  const cards = [...CATEGORIES[type]];
+  if (edit.category && !cards.some((c) => c.name === edit.category)) {
+    cards.unshift({ name: edit.category, icon: categoryIcon(type, edit.category) });
+  }
+  for (const cat of cards) {
     const btn = el("button", "category-card " + type);
     btn.type = "button";
     btn.setAttribute("role", "radio");

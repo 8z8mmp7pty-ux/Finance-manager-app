@@ -359,3 +359,35 @@ test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Re
   // R7: "Ntorq" (scooter) replaced "Rent".
   assert.match(await page.textContent('.entry-card:has-text("Ntorq")'), /🛵/);
 });
+
+test("R14/R7: the report shows the 🛵 Ntorq expense paid from July salary", { skip }, async () => {
+  await page.tap('#report-body .category-card:has-text("Salary")');
+  await page.tap('#report-body .category-card:has-text("July 2026")');
+  const rows = await page.$$eval("#report-body .report-row", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
+  assert.ok(rows.some((r) => r.includes("🛵") && r.includes("Ntorq")), rows.join(" | "));
+  await page.tap("#report-back");
+  await page.tap("#report-back");
+});
+
+test("R7/R5: entries saved with a replaced category keep their name and icon and can be edited", { skip }, async () => {
+  const res = await page.request.post(URL_ + "api/entries", {
+    data: { type: "expense", category: "Rent", description: "", amount: 9000, date: "2026-06-01" },
+  });
+  assert.equal(res.status(), 201);
+  await page.reload();
+  await page.waitForSelector(".entry-card");
+  const card = page.locator('.entry-card:has-text("Rent")').first();
+  assert.match(await card.innerText(), /🏠/);
+
+  await card.tap();
+  await page.waitForSelector("dialog[open]");
+  assert.equal(
+    await page.$eval('#edit-categories .category-card[aria-checked="true"] .category-name', (e) => e.textContent),
+    "Rent"
+  );
+  await page.fill("#edit-amount", "9500");
+  await page.tap("#edit-save");
+  await page.waitForFunction(() => !document.querySelector("dialog").open);
+  const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.category === "Rent");
+  assert.equal(saved.amount, 9500);
+});
