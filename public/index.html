@@ -20,7 +20,7 @@
       <section class="balance-card">
         <p class="label">Current Balance</p>
         <p id="balance" class="balance">₹0.00</p>
-        <a href="#budget" id="available" class="available-card" aria-label="Available to spend until next salary. Tap for the breakdown">
+        <a href="#budget" id="available" class="available-card" aria-label="Available to spend after everything in the 3-month forecast. Tap for the breakdown">
           <span class="label">Available to spend</span>
           <span id="available-amount" class="available-amount">₹0.00</span>
           <span id="available-meta" class="available-meta"></span>
@@ -177,7 +177,7 @@
       <section class="card" id="available-breakdown">
         <h2 id="available-title">Available to spend</h2>
         <p id="available-summary" class="budget-summary"></p>
-        <p class="step-hint">Current balance minus what is expected from today until the day before your next salary. For each category: its budget for those days or its planned + Auto amounts, whichever is more. Other income before salary is not counted.</p>
+        <p class="step-hint">The surplus after every entry in the 3-month forecast: current balance + expected income − expected payments. For each category and month: its budget or its planned + Auto amounts, whichever is more.</p>
         <ul id="available-list" class="report-list"></ul>
       </section>
 
@@ -200,8 +200,8 @@
       </section>
 
       <section class="card" id="forecast-card">
-        <h2>Cashflow forecast</h2>
-        <p class="step-hint">From today's balance: planned income in; for each category, its budget or what is planned for it, whichever is more (this month: the budget still left).</p>
+        <h2>Cashflow forecast · next 3 months</h2>
+        <p class="step-hint">From today to the same date 3 months ahead: planned income in; for each category and month, its budget (this month: what is left; a part month: its share by days) or its planned + Auto amounts, whichever is more.</p>
         <div class="grid-wrap"><table class="grid-table" id="forecast-table"></table></div>
       </section>
      </div>

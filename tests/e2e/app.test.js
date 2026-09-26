@@ -551,7 +551,8 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   assert.equal(await page.locator("#plan-list .plan-item:not(.auto-plan)").count(), 2);
 
   const rows = await page.$$eval("#forecast-table tr", (trs) => trs.map((tr) => [...tr.children].map((c) => c.innerText.trim())));
-  assert.equal(rows.length, 1 + 1 + 6, "header, today, 6 months");
+  assert.equal(rows.length, 1 + 1 + 4, "header, today, then 3 months: the rest of this month, 2 full months, part of the 3rd");
+  assert.match(rows[2][0], /^\d+–\d+ \w+/, "the first (partial) month shows its days");
   const next = rows[3];
   assert.equal(next[1], "+₹60,000");
   // Out = the Mandatory Food budget (more than its auto plan) plus the automatic lines that reach
@@ -793,13 +794,13 @@ test("R33/R34: old Shopping and Travel entries keep their name and icon and open
   await screen("");
 });
 
-test("R36: the home page shows funds available to spend until next salary, with a breakdown", { skip }, async () => {
+test("R36: the home page shows funds available to spend after everything in the 3-month forecast", { skip }, async () => {
   await screen("");
   const num = (t) => Number(t.replace(/[^\d.-]/g, "").replace(/^-?/, (m) => m));
   const amount = await page.textContent("#available-amount");
   assert.match(amount, /^-?₹[\d,]+\.\d\d$/);
   const meta = await page.textContent("#available-meta");
-  assert.match(meta, /^until \d{1,2} \w+ \(next salary.*\) · ₹[\d,.]+ expected$/);
+  assert.match(meta, /^after everything until \d{1,2} \w+ · \+₹[\d,.]+ in · −₹[\d,.]+ out/);
   // Smaller than the current balance, but on the same card.
   const sizes = await page.evaluate(() => [
     parseFloat(getComputedStyle(document.getElementById("balance")).fontSize),
@@ -810,11 +811,14 @@ test("R36: the home page shows funds available to spend until next salary, with 
   await page.tap("#available");
   await page.waitForSelector("#screen-budget:not([hidden])");
   const summary = await page.textContent("#available-summary");
-  const [balance, expected, available] = summary.split(/ balance − | expected = /).map(num);
-  assert.equal(Math.round((balance - expected) * 100), Math.round(available * 100));
+  const [balance, income, expected, available] = summary.split(/ balance \+ | income − | payments = /).map(num);
+  assert.equal(Math.round((balance + income - expected) * 100), Math.round(available * 100));
+  // It equals the forecast's closing balance.
+  const lastRow = await page.$$eval("#forecast-table tbody tr", (trs) => trs[trs.length - 1].lastElementChild.textContent);
+  assert.equal(Math.round(num(lastRow)), Math.round(available));
   assert.equal(num(amount), available);
   assert.equal(num(await page.textContent("#balance")), balance);
-  const rows = await page.$$eval("#available-list .report-row .entry-amount", (els) => els.map((e) => e.textContent));
+  const rows = await page.$$eval("#available-list .report-row .entry-amount.expense", (els) => els.map((e) => e.textContent));
   assert.equal(Math.round(rows.reduce((s, t) => s + num(t.replace("−", "")), 0) * 100), Math.round(expected * 100));
   await screen("");
 });

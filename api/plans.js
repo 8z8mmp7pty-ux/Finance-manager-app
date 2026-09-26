@@ -1,6 +1,7 @@
 // Planned future cashflows (expected income / expenses). GET, POST, PUT ?id=, DELETE ?id=.
 import { query, DatabaseConfigError } from "../lib/db.js";
 import { send, readBody, text, parseAmount, isDate, queryParam } from "../lib/http.js";
+import { forecastEnd } from "../public/ledger.js";
 
 const COLUMNS =
   "id, type, category, description, amount, to_char(next_date, 'YYYY-MM-DD') AS \"nextDate\", repeat, day";
@@ -23,6 +24,13 @@ function validate(body) {
   return { type, category, description, amount, nextDate, repeat, day };
 }
 
+// Only the next 3 months are forecast, so a new plan (and a one-time plan) can't be dated later.
+// A monthly plan may move past it when an early payment is recorded. One day of slack for time zones.
+function beyondForecast(plan, isNew) {
+  const serverToday = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  return (isNew || plan.repeat === "none") && plan.nextDate > forecastEnd(serverToday);
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
@@ -42,6 +50,9 @@ export default async function handler(req, res) {
       }
       const plan = validate(body || {});
       if (typeof plan === "string") return send(res, 400, { error: plan });
+      if (beyondForecast(plan, req.method === "POST")) {
+        return send(res, 400, { error: "Plans can only be dated within the next 3 months" });
+      }
       const values = [plan.type, plan.category, plan.description, plan.amount, plan.nextDate, plan.repeat, plan.day];
       if (req.method === "POST") {
         const { rows } = await query(

@@ -17,6 +17,8 @@ import {
   budgetStatus,
   cashflowForecast,
   availableToSpend,
+  forecastEnd,
+  FORECAST_MONTHS,
   UNCATEGORISED,
   autoPlans as autoPlanLines,
   SUBCATEGORIES,
@@ -1539,17 +1541,26 @@ function renderAvailable() {
   const amountEl = document.getElementById("available-amount");
   amountEl.textContent = currency.format(a.available);
   amountEl.classList.toggle("expense", a.available < 0);
-  const why = { plan: "next salary", history: "next salary, from your last one", none: "no salary yet: 30 days" }[a.source];
+  document.getElementById("available").classList.toggle("negative", a.available < 0);
+  // A dip below zero along the way matters even when the end result is positive.
+  const dip = a.lowest.balance < 0 && a.lowest.balance < a.available ? ` · lowest ${currency.format(a.lowest.balance)} on ${shortDate(a.lowest.date)}` : "";
   document.getElementById("available-meta").textContent =
-    `until ${shortDate(a.until)} (${why}) · ${currency.format(a.expected)} expected`;
+    `after everything until ${shortDate(a.until)} · +${currency.format(a.income)} in · −${currency.format(a.expected)} out${dip}`;
 
   // Breakdown on the Budget screen.
-  document.getElementById("available-title").textContent = `Available to spend until ${shortDate(a.until)}`;
+  document.getElementById("available-title").textContent = `Available to spend (until ${shortDate(a.until)})`;
   document.getElementById("available-summary").textContent =
-    `${currency.format(a.balance)} balance − ${currency.format(a.expected)} expected = ${currency.format(a.available)}`;
+    `${currency.format(a.balance)} balance + ${currency.format(a.income)} income − ${currency.format(a.expected)} payments = ${currency.format(a.available)}`;
   const listEl = document.getElementById("available-list");
   listEl.innerHTML = "";
-  if (!a.rows.length) listEl.append(el("li", "empty", "Nothing expected before then."));
+  if (a.income > 0) {
+    const li = el("li", "report-row");
+    const info = el("div", "entry-info");
+    info.append(el("p", "entry-desc", "Expected income"), el("p", "entry-date", "planned income in the forecast"));
+    li.append(el("span", "row-icon", "↓"), info, el("span", "entry-amount income", "+" + currency.format(a.income)));
+    listEl.append(li);
+  }
+  if (!a.rows.length) listEl.append(el("li", "empty", "No payments expected in the forecast."));
   for (const r of a.rows) {
     const li = el("li", "report-row");
     const info = el("div", "entry-info");
@@ -1623,7 +1634,8 @@ function renderBudget() {
     btn.type = "button";
     const info = el("div", "entry-info");
     const due = plan.nextDate <= today() ? "due " + (plan.nextDate < today() ? formatDate(plan.nextDate) : "today") : formatDate(plan.nextDate);
-    const meta = [due, plan.repeat === "monthly" ? "every month" : "one time", plan.description].filter(Boolean);
+    const beyond = plan.nextDate > forecastEnd(today()) ? "after the 3-month forecast" : "";
+    const meta = [due, plan.repeat === "monthly" ? "every month" : "one time", plan.description, beyond].filter(Boolean);
     info.append(el("p", "entry-desc", plan.category), el("p", "entry-date" + (plan.nextDate <= today() ? " due" : ""), meta.join(" · ")));
     const sign = plan.type === "income" ? "+" : "−";
     btn.append(el("span", "row-icon", categoryIcon(plan.type, plan.category)), info, el("span", "entry-amount " + plan.type, sign + currency.format(plan.amount)));
@@ -1637,7 +1649,7 @@ function renderBudget() {
   }
 
   // Forecast.
-  const forecast = cashflowForecast(entries, budgets, plans, today(), 6, autoPlans);
+  const forecast = cashflowForecast(entries, budgets, plans, today(), FORECAST_MONTHS, autoPlans);
   forecastTable.innerHTML = "";
   const head = el("tr");
   for (const h of ["Month", "In", "Out", "Balance"]) head.append(el("th", h === "Month" ? "grid-corner" : "", h));
@@ -1649,7 +1661,11 @@ function renderBudget() {
   tbody.append(startRow);
   for (const row of forecast.rows) {
     const tr = el("tr");
-    const label = new Date(row.month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    // Short labels that fit a phone: "26–30 Sept", "Oct", "1–25 Dec" (year only when it differs).
+    const monthDate = new Date(row.month + "-01T00:00:00");
+    let monthName = monthDate.toLocaleDateString("en-IN", { month: "short" });
+    if (row.month.slice(0, 4) !== today().slice(0, 4)) monthName += " ’" + row.month.slice(2, 4);
+    const label = row.partial ? `${Number(row.from.slice(8))}–${Number(row.to.slice(8))} ${monthName}` : monthName;
     tr.append(
       el("th", "grid-reserve", label),
       el("td", "income", row.income ? "+" + compactCurrency.format(row.income) : "–"),
@@ -1768,6 +1784,8 @@ function openPlan(plan = null) {
   planForm.elements["plan-repeat"].value = plan ? plan.repeat : "none";
   planAmount.value = plan ? plan.amount : "";
   planDate.value = plan ? plan.nextDate : today();
+  // Plans can only be dated within the forecast (the next FORECAST_MONTHS months).
+  planDate.max = forecastEnd(today());
   planNote.value = plan ? plan.description : "";
   document.getElementById("plan-title").textContent = plan ? "Edit plan" : "Plan a cashflow";
   planDelete.hidden = !plan;

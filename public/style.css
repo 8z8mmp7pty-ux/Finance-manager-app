@@ -572,6 +572,9 @@ li:last-child > button.report-row { border-bottom: none; }
   -webkit-tap-highlight-color: transparent;
 }
 .available-card:active { transform: scale(0.98); }
-.available-amount { font-size: 1.5rem; font-weight: 700; color: var(--income); }
+.available-amount { font-size: 1.5rem; font-weight: 700; color: var(--income); white-space: nowrap; }
+.available-card.negative { background: var(--expense-bg); }
+#available-list .entry-amount { flex-shrink: 0; }
+#available-list .entry-info { min-width: 90px; }
 .available-amount.expense { color: var(--expense); }
 .available-meta { font-size: 0.75rem; color: var(--muted); text-align: center; }

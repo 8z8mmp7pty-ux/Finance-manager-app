@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
   budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
-  autoNtorqPlans, autoPlans, nextSalary, availableToSpend } from "../public/ledger.js";
+  autoNtorqPlans, autoPlans, availableToSpend, forecastEnd } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -553,52 +553,60 @@ test("R34: Education and Entertainment auto amounts land in the forecast month b
   assert.ok(f.rows[1].expense > f.rows[0].expense * 5);
 });
 
-// ---------- Available to spend until next salary (R36) ----------
+// ---------- Available to spend = surplus after the 3-month forecast (R36) ----------
 
-test("R36: next salary comes from the Salary plan, else a month after the last Salary, else 30 days", () => {
-  const plan = { type: "income", category: "Salary", amount: 60000, nextDate: "2026-10-01", repeat: "monthly", day: 1 };
-  assert.deepEqual(nextSalary([], [plan], "2026-09-26"), { date: "2026-10-01", source: "plan" });
-  assert.deepEqual(nextSalary([], [{ ...plan, nextDate: "2026-09-20" }], "2026-09-26"), { date: "2026-09-26", source: "plan" }, "overdue = today");
-  assert.deepEqual(nextSalary([income("2026-09-01", "Salary", 60000)], [], "2026-09-26"), { date: "2026-10-01", source: "history" });
-  assert.deepEqual(nextSalary([income("2026-08-01", "Salary", 60000)], [], "2026-09-26"), { date: "2026-10-01", source: "history" });
-  assert.deepEqual(nextSalary([], [], "2026-09-26"), { date: "2026-10-26", source: "none" });
-});
-
-test("R36: available = balance − expected until the day before salary (larger of budget and planned per category)", () => {
-  const today = "2026-09-26"; // salary on 1 Oct → period 26–30 Sep (5 days, the rest of September)
-  const entries = [income("2026-09-01", "Salary", 60000), expense("2026-09-10", "Mandatory Food", 2000)];
-  const budgets = [
-    { category: "Mandatory Food", amount: 6000 }, // ₹4,000 left for the rest of the month
-    { category: "Ntorq", amount: 1000 }, // nothing spent: ₹1,000 left
-  ];
-  const plans = [
-    { type: "income", category: "Salary", amount: 60000, nextDate: "2026-10-01", repeat: "monthly", day: 1 },
-    { type: "expense", category: "Ntorq", amount: 1500, nextDate: "2026-09-28", repeat: "none" }, // service, above budget
-    { type: "expense", category: "Health", amount: 700, nextDate: "2026-10-05", repeat: "none" }, // after salary: not counted
-    { type: "income", category: "Gift", amount: 5000, nextDate: "2026-09-27", repeat: "none" }, // income before salary: left out
-  ];
-  const lines = autoPlans(entries, today); // Mandatory Food: ₹2,000/30 = ₹66.67/day → 27–30 Sep ≈ ₹266.67
-  const a = availableToSpend(entries, budgets, plans, today, lines);
-  assert.equal(a.until, "2026-10-01");
-  assert.equal(a.balance, 58000);
-  assert.deepEqual(a.rows.map((r) => [r.category, r.expected]), [
-    ["Mandatory Food", 4000], // budget left beats the auto line
-    ["Ntorq", 1500], // planned beats budget
+test("R36: the forecast covers today to the same date 3 months ahead, month by month", () => {
+  assert.equal(forecastEnd("2026-09-26"), "2026-12-25");
+  const entries = [income("2026-09-01", "Salary", 60000)];
+  const budgets = [{ category: "Bills & Utilities", amount: 3100 }]; // nothing spent yet
+  const f = cashflowForecast(entries, budgets, [], "2026-09-26", 3, []);
+  assert.deepEqual(f.rows.map((r) => [r.from, r.to, r.partial]), [
+    ["2026-09-26", "2026-09-30", true],
+    ["2026-10-01", "2026-10-31", false],
+    ["2026-11-01", "2026-11-30", false],
+    ["2026-12-01", "2026-12-25", true],
   ]);
-  assert.equal(a.expected, 5500);
-  assert.equal(a.available, 52500);
+  // Sep: the ₹3,100 left this month; Oct: 3,100; Nov: 3,100; Dec: 25/31 of 3,100 = 2,500.
+  assert.deepEqual(f.rows.map((r) => r.expense), [3100, 3100, 3100, 2500]);
 });
 
-test("R36: budgets for later months are prorated by days; salary due today leaves the full balance", () => {
-  const entries = [income("2026-09-01", "Salary", 30000)];
-  const budgets = [{ category: "Bills & Utilities", amount: 3100 }]; // October: ₹100/day
-  // Salary expected 11 Oct → period 26 Sep – 10 Oct: rest of Sep (5 days, budget left 3,100) + 10 Oct days.
-  const plans = [{ type: "income", category: "Salary", amount: 30000, nextDate: "2026-10-11", repeat: "monthly", day: 11 }];
-  const a = availableToSpend(entries, budgets, plans, "2026-09-26", []);
-  assert.equal(a.rows[0].budget, 3100 + 1000);
-  assert.equal(a.available, 30000 - 4100);
-  const due = availableToSpend(entries, budgets, [{ ...plans[0], nextDate: "2026-09-26" }], "2026-09-26", []);
-  assert.deepEqual([due.expected, due.available], [0, 30000]);
+test("R36: available = balance + every expected income − every expected payment over the forecast", () => {
+  const today = "2026-09-26";
+  const entries = [income("2026-09-01", "Salary", 60000), expense("2026-09-10", "Mandatory Food", 2000)]; // balance 58,000
+  const budgets = [{ category: "Mandatory Food", amount: 6000 }];
+  const plans = [
+    { type: "income", category: "Salary", amount: 60000, nextDate: "2026-10-01", repeat: "monthly", day: 1 }, // Oct, Nov, Dec
+    { type: "expense", category: "Ntorq", amount: 1500, nextDate: "2026-11-05", repeat: "none" },
+    { type: "expense", category: "Health", amount: 700, nextDate: "2027-01-05", repeat: "none" }, // after the forecast: not counted
+  ];
+  const a = availableToSpend(entries, budgets, plans, today, []);
+  // Food: Sep 4,000 left + Oct 6,000 + Nov 6,000 + Dec 25/31 × 6,000 = 4,838.71 → 20,838.71.
+  assert.equal(a.income, 180000);
+  assert.deepEqual(a.rows.map((r) => [r.category, r.expected]), [["Mandatory Food", 20838.71], ["Ntorq", 1500]]);
+  assert.equal(a.expected, 22338.71);
+  assert.equal(a.available, 58000 + 180000 - 22338.71);
+  assert.equal(a.until, "2026-12-25");
+});
+
+test("R36: budget and planned are compared month by month; the lowest point is reported", () => {
+  const today = "2026-09-26";
+  const entries = [income("2026-09-01", "Salary", 10000), expense("2026-09-05", "Health", 10000)]; // balance 0, Health budget used up
+  const budgets = [{ category: "Health", amount: 10000 }];
+  const plans = [
+    { type: "expense", category: "Health", amount: 5000, nextDate: "2026-09-28", repeat: "none" },
+    { type: "income", category: "Salary", amount: 40000, nextDate: "2026-11-01", repeat: "none" },
+  ];
+  const a = availableToSpend(entries, budgets, plans, today, []);
+  const [sep, oct] = a.forecast.rows;
+  assert.equal(sep.expense, 5000, "September: planned beats the used-up budget");
+  assert.equal(oct.expense, 10000, "October: the full budget");
+  assert.deepEqual(a.lowest, { balance: -15000, date: "2026-10-31" });
+});
+
+test("R36: transfers and contra entries do not change what is available", () => {
+  const base = [income("2026-09-01", "Salary", 50000)];
+  const moved = [...base, transfer("2026-09-02", "Salary", GENERAL, 20000), { id: 999, type: "contra", category: "", description: "", reserve: GENERAL, toReserve: "", account: "Super Money", toAccount: "Cash", amount: 5000, date: "2026-09-03" }];
+  assert.equal(availableToSpend(moved, [], [], "2026-09-26").available, availableToSpend(base, [], [], "2026-09-26").available);
 });
 
 test("R37: a planned payment in a category with an Auto line adds to it (forecast and available to spend)", () => {
@@ -611,7 +619,8 @@ test("R37: a planned payment in a category with an Auto line adds to it (forecas
   assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, 1400 + 1500);
   const a = availableToSpend(entries, [], [service, salary], today, lines);
   assert.deepEqual(a.rows.map((r) => [r.category, r.expected]), [["Ntorq", 2900]]);
-  // A budget only counts when it is larger than planned + Auto.
-  const small = availableToSpend(entries, [{ category: "Ntorq", amount: 2000 }], [service, salary], today, lines);
-  assert.equal(small.rows[0].expected, 2900);
+  // A budget only counts when it is larger than planned + Auto (compared month by month):
+  // Sep: max(budget left 600 × … , petrol) and so on — never less than planned + Auto.
+  const small = availableToSpend(entries, [{ category: "Ntorq", amount: 100 }], [service, salary], today, lines);
+  assert.ok(small.rows[0].expected >= 2900);
 });

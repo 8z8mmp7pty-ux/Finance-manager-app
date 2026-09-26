@@ -2,6 +2,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { skip, raw, call } from "./helpers.js";
+import { forecastEnd, addMonths } from "../public/ledger.js";
+
+const todayUtc = () => new Date().toISOString().slice(0, 10);
 
 let budgets, plans, pool;
 
@@ -44,7 +47,7 @@ test("R26: planned cashflows can be created, edited and deleted", { skip }, asyn
     { id: undefined, type: "income", category: "Salary", description: "", amount: 60000, nextDate: "2026-10-01", repeat: "monthly", day: 1 }
   );
   const rent31 = await call(plans, "POST", "/api/plans", {
-    type: "expense", category: "Ntorq", amount: 100, nextDate: "2027-02-28", day: 31, repeat: "monthly",
+    type: "expense", category: "Ntorq", amount: 100, nextDate: todayUtc(), day: 31, repeat: "monthly",
   });
   assert.equal(rent31.data.day, 31, "an explicit day is kept even when the date is earlier in the month");
   assert.equal((await call(plans, "POST", "/api/plans", { ...rent31.data, day: 32 })).status, 400);
@@ -61,6 +64,14 @@ test("R26: planned cashflows can be created, edited and deleted", { skip }, asyn
   ]) {
     assert.equal((await call(plans, "POST", "/api/plans", bad)).status, 400, JSON.stringify(bad));
   }
+  // R36: plans only within the 3-month forecast (a new plan, or a one-time plan).
+  const tooLate = addMonths(forecastEnd(todayUtc()), 1);
+  const late = await call(plans, "POST", "/api/plans", { type: "expense", category: "Health", amount: 1, nextDate: tooLate });
+  assert.equal(late.status, 400);
+  assert.match(late.data.error, /within the next 3 months/);
+  // …but recording an early monthly payment may move it past the forecast.
+  const early = await call(plans, "PUT", `/api/plans?id=${id}`, { ...created.data, nextDate: tooLate });
+  assert.equal(early.status, 200);
   assert.equal((await call(plans, "DELETE", `/api/plans?id=${id}`)).status, 200);
   assert.equal((await call(plans, "DELETE", `/api/plans?id=${id}`)).status, 404);
   assert.deepEqual((await call(plans, "GET", "/api/plans")).data, []);
