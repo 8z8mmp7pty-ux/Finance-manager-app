@@ -1,5 +1,4 @@
 import { query } from "../lib/db.js";
-import { isAuthorized } from "../lib/auth.js";
 
 function send(res, status, data) {
   res.statusCode = status;
@@ -35,13 +34,6 @@ function validate(body) {
 const SELECT_COLUMNS = "id, type, description, amount, to_char(entry_date, 'YYYY-MM-DD') AS date";
 
 export default async function handler(req, res) {
-  if (!process.env.APP_PASSWORD) {
-    return send(res, 500, { error: "APP_PASSWORD is not configured on the server" });
-  }
-  if (!isAuthorized(req)) {
-    return send(res, 401, { error: "Wrong password" });
-  }
-
   try {
     if (req.method === "GET") {
       const { rows } = await query(

@@ -1,9 +1,3 @@
-const PASSWORD_KEY = "finance-manager-password";
-
-const loginSection = document.getElementById("login");
-const loginForm = document.getElementById("login-form");
-const passwordInput = document.getElementById("password");
-const logoutBtn = document.getElementById("logout");
 const appSection = document.getElementById("app");
 const statusEl = document.getElementById("status");
 
@@ -21,37 +15,14 @@ const expenseEl = document.getElementById("total-expense");
 const currency = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
 
 let entries = [];
-let password = "";
-
-try {
-  password = localStorage.getItem(PASSWORD_KEY) || "";
-} catch {
-  // Storage unavailable; the password will be asked for each visit.
-}
-
-function rememberPassword(value) {
-  password = value;
-  try {
-    if (value) localStorage.setItem(PASSWORD_KEY, value);
-    else localStorage.removeItem(PASSWORD_KEY);
-  } catch {
-    // Ignore storage errors.
-  }
-}
-
-class UnauthorizedError extends Error {}
 
 async function api(method, query = "", body) {
   const res = await fetch("/api/entries" + query, {
     method,
-    headers: {
-      Authorization: "Bearer " + password,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
+    headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) throw new UnauthorizedError(data.error || "Wrong password");
   if (!res.ok) throw new Error(data.error || "Request failed (" + res.status + ")");
   return data;
 }
@@ -60,26 +31,6 @@ function showStatus(message, isError = true) {
   statusEl.textContent = message || "";
   statusEl.classList.toggle("info", !isError);
   statusEl.hidden = !message;
-}
-
-function showLogin(message) {
-  rememberPassword("");
-  appSection.hidden = true;
-  logoutBtn.hidden = true;
-  loginSection.hidden = false;
-  showStatus(message);
-  passwordInput.focus();
-}
-
-function showApp() {
-  loginSection.hidden = true;
-  appSection.hidden = false;
-  logoutBtn.hidden = false;
-}
-
-function handleError(err) {
-  if (err instanceof UnauthorizedError) showLogin(err.message);
-  else showStatus(err.message);
 }
 
 function today() {
@@ -146,26 +97,13 @@ async function loadEntries() {
   try {
     entries = await api("GET");
     sortEntries();
-    showApp();
+    appSection.hidden = false;
     showStatus("");
     render();
   } catch (err) {
-    handleError(err);
+    showStatus(err.message);
   }
 }
-
-loginForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  rememberPassword(passwordInput.value);
-  passwordInput.value = "";
-  loadEntries();
-});
-
-logoutBtn.addEventListener("click", () => {
-  entries = [];
-  render();
-  showLogin("");
-});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -191,7 +129,7 @@ form.addEventListener("submit", async (event) => {
     dateInput.value = today();
     descriptionInput.focus();
   } catch (err) {
-    handleError(err);
+    showStatus(err.message);
   } finally {
     submitBtn.disabled = false;
   }
@@ -252,7 +190,7 @@ editForm.addEventListener("submit", async (event) => {
   } catch (err) {
     editSave.disabled = false;
     closeEditor();
-    handleError(err);
+    showStatus(err.message);
   }
 });
 
@@ -270,10 +208,9 @@ editDelete.addEventListener("click", async () => {
   } catch (err) {
     editDelete.disabled = false;
     closeEditor();
-    handleError(err);
+    showStatus(err.message);
   }
 });
 
 dateInput.value = today();
-if (password) loadEntries();
-else showLogin("");
+loadEntries();
