@@ -42,7 +42,14 @@ body {
   background: var(--bg);
   color: var(--text);
 }
-.container { max-width: 560px; margin: 0 auto; padding: 24px 16px 96px; } /* room for the + button */
+.container { max-width: 560px; margin: 0 auto; padding: 24px 16px 24px; }
+/* Room for the + button only when the page scrolls anyway: a page that fits stays one screen. */
+.container.fab-room { padding-bottom: 96px; }
+.container.fits { padding-bottom: 0; }
+.container.fits .screen > :last-child { margin-bottom: 0; }
+/* No bounce or pull when dragging a page that fits, and nothing scrolls behind an open sheet. */
+html, body { overscroll-behavior-y: none; }
+html:has(dialog[open]) { overflow: hidden; }
 h1 { font-size: 1.6rem; margin: 0 0 16px; }
 h2 { font-size: 1.1rem; margin: 0 0 12px; }
 .card, .balance-card {
@@ -621,8 +628,36 @@ li:last-child > button.report-row { border-bottom: none; }
 }
 .add-fab[hidden] { display: none; }
 @media (prefers-color-scheme: dark) { .add-fab { color: #111827; } }
-dialog.add-sheet { padding: 0; }
-.add-sheet .wizard { margin: 0; border: none; box-shadow: none; background: transparent; }
+/* The Add Entry dialog fills the screen and is see-through; the sheet sits at its bottom. Everything
+   around the sheet is the dialog itself, so any tap there is a tap outside (and never a scroll). */
+dialog.add-sheet {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+dialog.add-sheet[open] { display: flex; align-items: flex-end; justify-content: center; }
+dialog.add-sheet .wizard {
+  width: min(100%, 480px);
+  max-height: 90vh;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  border-radius: 16px 16px 0 0;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+@media (min-width: 601px) {
+  dialog.add-sheet[open] { align-items: center; }
+  dialog.add-sheet .wizard { border-radius: 16px; }
+}
 .add-status { margin: 4px 0 8px; }
 .toast {
   position: fixed;

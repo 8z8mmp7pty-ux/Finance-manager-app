@@ -346,7 +346,20 @@ function render() {
   renderBudget();
   renderAvailable();
   refreshTransferAll();
+  fitPage();
 }
+
+// The + button needs room under the last card only when the page scrolls anyway; a page that fits
+// on the screen stays exactly one screen tall, so dragging it does nothing.
+const mainEl = document.querySelector("main.container");
+function fitPage() {
+  const contentBottom = document.getElementById("app").getBoundingClientRect().bottom + window.scrollY;
+  const fits = contentBottom <= window.innerHeight;
+  mainEl.classList.toggle("fits", fits);
+  mainEl.classList.toggle("fab-room", !fits);
+}
+new ResizeObserver(fitPage).observe(document.getElementById("app"));
+window.addEventListener("resize", fitPage);
 
 // Keep a "Transfer all" amount in step with the data (e.g. after an entry is edited).
 function refreshTransferAll() {
@@ -783,19 +796,16 @@ addDialog.addEventListener("close", () => {
   document.getElementById("add-status").hidden = true;
 });
 
-// A tap outside the popup closes it, or posts the entry first if one is ready (the popup stays
-// open if posting fails or is cancelled, so the message can be seen). Only a tap that also started
-// outside counts: a drag from a field inside that ends outside does nothing.
-function outsideAdd(event) {
-  const r = addDialog.getBoundingClientRect();
-  return !(event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom);
-}
+// A tap anywhere outside the sheet closes the popup, or posts the entry first if one is ready (the
+// popup stays open if posting fails or is cancelled, so the message can be seen). The dialog fills
+// the screen, so "outside" is the dialog itself. A drag from a field inside that ends outside
+// does nothing.
 let pressedOutside = false;
 addDialog.addEventListener("pointerdown", (event) => {
-  pressedOutside = event.target === addDialog && outsideAdd(event);
+  pressedOutside = event.target === addDialog;
 });
 addDialog.addEventListener("click", async (event) => {
-  const outside = event.target === addDialog && outsideAdd(event) && pressedOutside;
+  const outside = event.target === addDialog && pressedOutside;
   pressedOutside = false;
   if (!outside || postBtn.disabled) return; // postBtn is disabled while a post is on its way
   if (!entryReady()) return closeAdd();

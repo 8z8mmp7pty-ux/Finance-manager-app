@@ -955,6 +955,23 @@ test("R41: Add Entry is a popup from the + button; a tap outside closes it, or p
   assert.ok(await page.isVisible("#add-fab"));
   await screen("");
 
+  // R42: the page behind does not scroll while the popup is open, and the area around the sheet is
+  // one see-through tap target (the dialog itself) that never scrolls.
+  await openAdd();
+  const lock = await page.evaluate(() => {
+    const d = document.getElementById("add-dialog");
+    const r = d.getBoundingClientRect();
+    return { overflow: getComputedStyle(document.documentElement).overflow, full: r.top === 0 && r.height === innerHeight, touch: getComputedStyle(d).touchAction };
+  });
+  assert.deepEqual(lock, { overflow: "hidden", full: true, touch: "none" });
+  // A tap outside that wobbles a few pixels still closes it (real touch events).
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 200, y: 40 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 205, y: 46 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  await cdp.detach();
+
   // Nothing typed: a tap outside just closes it.
   await openAdd();
   await outside();
@@ -1128,4 +1145,25 @@ test("R41: Add Entry is a popup from the + button; a tap outside closes it, or p
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
   assert.ok(await addOpen(), "opens when restored from the cache");
   await closeAdd();
+});
+
+test("R42: a page that fits on the screen does not scroll; a longer one leaves room for the + button", { skip }, async () => {
+  await screen("");
+  const tall = await page.evaluate(() => innerHeight);
+  // A screen tall enough for the home page: exactly one screen, nothing to drag.
+  await page.setViewportSize({ width: 390, height: 1100 });
+  await page.waitForFunction(() => document.querySelector("main").classList.contains("fits"));
+  assert.equal(await page.evaluate(() => document.documentElement.scrollHeight), 1100);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).overscrollBehaviorY), "none");
+  // A short screen: the page scrolls and the last card can scroll clear of the + button.
+  await page.setViewportSize({ width: 390, height: 500 });
+  await page.waitForFunction(() => document.querySelector("main").classList.contains("fab-room"));
+  const clear = await page.evaluate(() => {
+    scrollTo(0, document.documentElement.scrollHeight);
+    const last = document.getElementById("app").getBoundingClientRect().bottom;
+    return last <= document.getElementById("add-fab").getBoundingClientRect().top;
+  });
+  assert.ok(clear, "the last card scrolls above the + button");
+  await page.setViewportSize({ width: 390, height: tall });
+  await page.evaluate(() => scrollTo(0, 0));
 });
