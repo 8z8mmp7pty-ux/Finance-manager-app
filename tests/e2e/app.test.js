@@ -790,3 +790,29 @@ test("R33/R34: old Shopping and Travel entries keep their name and icon and open
   }
   await screen("");
 });
+
+test("R36: the home page shows funds available to spend until next salary, with a breakdown", { skip }, async () => {
+  await screen("");
+  const num = (t) => Number(t.replace(/[^\d.-]/g, "").replace(/^-?/, (m) => m));
+  const amount = await page.textContent("#available-amount");
+  assert.match(amount, /^-?₹[\d,]+\.\d\d$/);
+  const meta = await page.textContent("#available-meta");
+  assert.match(meta, /^until \d{1,2} \w+ \(next salary.*\) · ₹[\d,.]+ expected$/);
+  // Smaller than the current balance, but on the same card.
+  const sizes = await page.evaluate(() => [
+    parseFloat(getComputedStyle(document.getElementById("balance")).fontSize),
+    parseFloat(getComputedStyle(document.getElementById("available-amount")).fontSize),
+  ]);
+  assert.ok(sizes[1] < sizes[0]);
+
+  await page.tap("#available");
+  await page.waitForSelector("#screen-budget:not([hidden])");
+  const summary = await page.textContent("#available-summary");
+  const [balance, expected, available] = summary.split(/ balance − | expected = /).map(num);
+  assert.equal(Math.round((balance - expected) * 100), Math.round(available * 100));
+  assert.equal(num(amount), available);
+  assert.equal(num(await page.textContent("#balance")), balance);
+  const rows = await page.$$eval("#available-list .report-row .entry-amount", (els) => els.map((e) => e.textContent));
+  assert.equal(Math.round(rows.reduce((s, t) => s + num(t.replace("−", "")), 0) * 100), Math.round(expected * 100));
+  await screen("");
+});

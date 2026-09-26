@@ -555,3 +555,23 @@ li:last-child > button.report-row { border-bottom: none; }
 .switch-label { flex-shrink: 0; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
 /* Names in the Planned list wrap at word boundaries (not "Entertainmen / t"). */
 .plan-item .entry-desc { overflow-wrap: break-word; }
+
+/* Available to spend (home page, under the balance) */
+.available-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: -4px auto 14px;
+  padding: 10px 14px;
+  max-width: 320px;
+  border-radius: 12px;
+  background: var(--income-bg);
+  color: var(--text);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.available-card:active { transform: scale(0.98); }
+.available-amount { font-size: 1.5rem; font-weight: 700; color: var(--income); }
+.available-amount.expense { color: var(--expense); }
+.available-meta { font-size: 0.75rem; color: var(--muted); text-align: center; }

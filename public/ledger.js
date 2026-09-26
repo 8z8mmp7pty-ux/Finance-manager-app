@@ -599,3 +599,92 @@ export function cashflowForecast(entries, budgets, plans, today, months = 6, aut
   }
   return { start, rows };
 }
+
+// ---------- Available to spend until next salary ----------
+
+function daysInMonthOf(date) {
+  const [y, m] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+function lastDayOfMonth(date) {
+  return date.slice(0, 8) + String(daysInMonthOf(date)).padStart(2, "0");
+}
+
+// When the next salary is expected: the earliest planned Salary income (overdue counts as today);
+// otherwise a month after the last Salary entry; otherwise 30 days from today.
+export function nextSalary(entries, plans, today) {
+  const far = addMonths(today, 24);
+  const planned = plans
+    .filter((p) => p.type === "income" && p.category === "Salary")
+    .map((p) => planOccurrences(p, today, far)[0])
+    .filter(Boolean)
+    .sort();
+  if (planned.length) return { date: planned[0], source: "plan" };
+  const last = entries
+    .filter((e) => e.type === "income" && e.category === "Salary" && e.date <= today)
+    .map((e) => e.date)
+    .sort()
+    .pop();
+  if (last) {
+    let date = addMonths(last, 1);
+    for (let i = 2; date <= today && i < 36; i++) date = addMonths(last, i);
+    return { date, source: "history" };
+  }
+  return { date: addDays(today, 30), source: "none" };
+}
+
+// Money you can spend until the next salary: current balance minus what is expected from today up
+// to the day before it. For each expense category the larger of (a) its budget for those days and
+// (b) planned payments + automatic lines for those days. This month's budget counts only what is
+// still unspent, spread over the rest of the month. Other expected income is left out (to be safe).
+export function availableToSpend(entries, budgets, plans, today, autoLines = []) {
+  const salary = nextSalary(entries, plans, today);
+  const end = addDays(salary.date, -1); // last day covered
+  const balance = totalsOf(entries).net;
+  const byCategory = new Map(); // category -> { planned, budget }
+  const bucket = (c) => {
+    if (!byCategory.has(c)) byCategory.set(c, { category: c, planned: 0, budget: 0 });
+    return byCategory.get(c);
+  };
+
+  if (end >= today) {
+    // Planned expense payments due in the period (overdue ones count as due today).
+    for (const plan of plans) {
+      if (plan.type !== "expense") continue;
+      for (const date of planOccurrences(plan, today, addDays(end, 1))) bucket(plan.category).planned += plan.amount;
+    }
+    // Automatic lines, day by day (same even spread as the forecast).
+    for (const auto of autoLines) {
+      if (!(auto.amount > 0)) continue;
+      let k = 0;
+      for (let date = auto.from; date <= auto.to; date = addDays(date, 1), k++) {
+        const share = round((auto.amount * (k + 1)) / auto.days) - round((auto.amount * k) / auto.days);
+        if (date >= today && date <= end) bucket(auto.category).planned += share;
+      }
+    }
+    // Budgets for the days of the period, month by month.
+    const spentThisMonth = new Map(spendingByCategory(entries, { period: "this-month" }, today).rows.map((r) => [r.category, r.amount]));
+    for (const b of budgets) {
+      let due = 0;
+      for (let start = today; start <= end; start = addDays(lastDayOfMonth(start), 1)) {
+        const stop = lastDayOfMonth(start) < end ? lastDayOfMonth(start) : end;
+        const days = daysInclusive(start, stop);
+        if (monthOf(start) === monthOf(today)) {
+          const left = Math.max(0, b.amount - (spentThisMonth.get(b.category) || 0));
+          due += (left * days) / daysInclusive(today, lastDayOfMonth(today));
+        } else {
+          due += (b.amount * days) / daysInMonthOf(start);
+        }
+      }
+      bucket(b.category).budget += due;
+    }
+  }
+
+  const rows = [...byCategory.values()]
+    .map((r) => ({ category: r.category, planned: round(r.planned), budget: round(r.budget), expected: round(Math.max(r.planned, r.budget)) }))
+    .filter((r) => r.expected > 0)
+    .sort((a, b) => b.expected - a.expected || a.category.localeCompare(b.category));
+  const expected = round(rows.reduce((s, r) => s + r.expected, 0));
+  return { balance, expected, available: round(balance - expected), until: salary.date, source: salary.source, rows };
+}

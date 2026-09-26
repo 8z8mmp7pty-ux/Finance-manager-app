@@ -16,6 +16,7 @@ import {
   receiptReport,
   budgetStatus,
   cashflowForecast,
+  availableToSpend,
   UNCATEGORISED,
   autoPlans as autoPlanLines,
   SUBCATEGORIES,
@@ -340,6 +341,7 @@ function render() {
   renderReserves();
   renderReport();
   renderBudget();
+  renderAvailable();
   refreshTransferAll();
 }
 
@@ -1532,6 +1534,38 @@ function renderGrid() {
 }
 
 reportBack.addEventListener("click", () => showReportStage(REPORT_BACK[report.stage] || "menu"));
+
+// ---------- Available to spend until next salary ----------
+
+function shortDate(date) {
+  return new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+function renderAvailable() {
+  const a = availableToSpend(entries, budgets, plans, today(), autoPlanLines(entries, today()));
+  const amountEl = document.getElementById("available-amount");
+  amountEl.textContent = currency.format(a.available);
+  amountEl.classList.toggle("expense", a.available < 0);
+  const why = { plan: "next salary", history: "next salary, from your last one", none: "no salary yet: 30 days" }[a.source];
+  document.getElementById("available-meta").textContent =
+    `until ${shortDate(a.until)} (${why}) · ${currency.format(a.expected)} expected`;
+
+  // Breakdown on the Budget screen.
+  document.getElementById("available-title").textContent = `Available to spend until ${shortDate(a.until)}`;
+  document.getElementById("available-summary").textContent =
+    `${currency.format(a.balance)} balance − ${currency.format(a.expected)} expected = ${currency.format(a.available)}`;
+  const listEl = document.getElementById("available-list");
+  listEl.innerHTML = "";
+  if (!a.rows.length) listEl.append(el("li", "empty", "Nothing expected before then."));
+  for (const r of a.rows) {
+    const li = el("li", "report-row");
+    const info = el("div", "entry-info");
+    const basis = r.budget >= r.planned ? "budget" : "planned + Auto";
+    info.append(el("p", "entry-desc", r.category), el("p", "entry-date", basis));
+    li.append(el("span", "row-icon", categoryIcon("expense", r.category)), info, el("span", "entry-amount expense", "−" + currency.format(r.expected)));
+    listEl.append(li);
+  }
+}
 
 // ---------- Budget & planned cashflows ----------
 
