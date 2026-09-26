@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
-  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans } from "../public/ledger.js";
+  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -363,4 +363,41 @@ test("R28: the forecast counts automatic food plans day by day, split across mon
   // With a budget, the larger of budget and planned counts.
   const withBudget = cashflowForecast(entries, [{ category: "Mandatory Food", amount: 5000 }], [], "2026-09-26", 2, auto);
   assert.deepEqual([withBudget.rows[0].expense, withBudget.rows[1].expense], [2000, 5000]);
+});
+
+test("R29/R30: spending by category can show one line per Ntorq type; the filter follows the type", () => {
+  const entries = [
+    { ...expense("2026-09-02", "Ntorq", 300), subcategory: "Petrol" },
+    { ...expense("2026-09-05", "Ntorq", 250), subcategory: "Petrol" },
+    { ...expense("2026-09-06", "Ntorq", 1200), subcategory: "Repair / Accessory" },
+    expense("2026-09-07", "Ntorq", 100), // saved before types existed
+    expense("2026-09-08", "Transport", 90),
+  ];
+  const one = spendingByCategory(entries, { period: "all" }, "2026-09-26");
+  assert.deepEqual(one.rows.map((r) => [r.category, r.amount]), [["Ntorq", 1850], ["Transport", 90]]);
+  const split = spendingByCategory(entries, { period: "all" }, "2026-09-26", { bySubcategory: true });
+  assert.deepEqual(split.rows.map((r) => [r.category, r.parent, r.subcategory, r.amount]), [
+    ["Ntorq · Repair / Accessory", "Ntorq", "Repair / Accessory", 1200],
+    ["Ntorq · Petrol", "Ntorq", "Petrol", 550],
+    ["Ntorq · Unclassified", "Ntorq", "Unclassified", 100],
+    ["Transport", "Transport", "", 90],
+  ]);
+  assert.equal(split.total, one.total);
+  assert.equal(filterEntries(entries, { category: "Ntorq", subcategory: "Petrol" }, "2026-09-26").length, 2);
+  assert.equal(filterEntries(entries, { category: "Ntorq", subcategory: "Unclassified" }, "2026-09-26").length, 1);
+});
+
+test("same-day entries are ordered by when they were first saved (split food halves stay together)", () => {
+  const a = { ...expense("2026-09-10", "Mandatory Food", 50), id: 1, createdAt: "2026-09-10T08:00:00.000Z" };
+  const b = { ...transfer("2026-09-10", "Salary", GENERAL, 50), id: 2, createdAt: "2026-09-10T09:00:00.000Z" };
+  const c = { ...expense("2026-09-10", "Optional Food", 50), id: 3, createdAt: "2026-09-10T08:00:00.000Z" };
+  assert.deepEqual(chronological([b, c, a]).map((e) => e.id), [1, 3, 2]);
+});
+
+test("R28: the 14-day food amount is rounded once, and the forecast days add up to it", () => {
+  const entries = [expense("2026-09-20", "Mandatory Food", 100)];
+  const [m] = autoFoodPlans(entries, "2026-09-26");
+  assert.equal(m.amount, 46.67);
+  const f = cashflowForecast(entries, [], [], "2026-09-26", 2, [m]);
+  assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, 46.67);
 });

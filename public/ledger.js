@@ -11,6 +11,15 @@ export const UNCATEGORISED = "Uncategorised";
 export const MANDATORY_FOOD = "Mandatory Food";
 export const OPTIONAL_FOOD = "Optional Food";
 export const FOOD_TYPES = [MANDATORY_FOOD, OPTIONAL_FOOD];
+// Expense categories with a finer type inside them, asked for when the card is tapped.
+export const SUBCATEGORIES = {
+  Ntorq: [
+    { name: "Petrol", icon: "⛽" },
+    { name: "Repair / Accessory", icon: "🔧" },
+  ],
+};
+// Spending-report line / filter value for entries of such a category saved without a type.
+export const UNCLASSIFIED = "Unclassified";
 export const DEFAULT_ACCOUNT = "Super Money";
 export const ACCOUNTS = ["Super Money", "GPay", "Cash"];
 
@@ -20,8 +29,15 @@ function round(n) {
   return Math.round(n * 100) / 100;
 }
 
+// Oldest first: by date, then by when the entry was first saved (the two halves of a split
+// food entry share that time, so they stay together), then by id.
 export function chronological(entries) {
-  return [...entries].sort((a, b) => a.date.localeCompare(b.date) || Number(a.id) - Number(b.id));
+  return [...entries].sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      (a.createdAt && b.createdAt ? a.createdAt.localeCompare(b.createdAt) : 0) ||
+      Number(a.id) - Number(b.id)
+  );
 }
 
 export function monthOf(date) {
@@ -345,6 +361,7 @@ export function filterEntries(entries, filters, today) {
     if (f.to && e.date > f.to) return false;
     if (f.type && e.type !== f.type) return false;
     if (f.category && (f.category === UNCATEGORISED ? e.category !== "" : e.category !== f.category)) return false;
+    if (f.subcategory && (e.subcategory || UNCLASSIFIED) !== f.subcategory) return false;
     if (f.reserve && e.reserve !== f.reserve && e.toReserve !== f.reserve) return false;
     if (f.account && (e.account || DEFAULT_ACCOUNT) !== f.account && e.toAccount !== f.account) return false;
     if (search) {
@@ -368,13 +385,17 @@ export function totalsOf(entries) {
 
 // ---------- Spending by category ----------
 
-// Expenses grouped by category (classification), largest first.
-export function spendingByCategory(entries, filters, today) {
+// Expenses grouped by category (classification), largest first. With `bySubcategory`, categories
+// that have types inside them (e.g. Ntorq) get one line per type ("Ntorq · Petrol").
+export function spendingByCategory(entries, filters, today, { bySubcategory = false } = {}) {
   const expenses = filterEntries(entries, { ...filters, type: "expense" }, today);
   const groups = new Map();
   for (const e of expenses) {
-    const key = e.category || UNCATEGORISED;
-    if (!groups.has(key)) groups.set(key, { category: key, amount: 0, count: 0 });
+    const category = e.category || UNCATEGORISED;
+    const split = bySubcategory && SUBCATEGORIES[category];
+    const subcategory = split ? e.subcategory || UNCLASSIFIED : "";
+    const key = split ? `${category} · ${subcategory}` : category;
+    if (!groups.has(key)) groups.set(key, { category: key, parent: category, subcategory, amount: 0, count: 0 });
     const g = groups.get(key);
     g.amount = round(g.amount + e.amount);
     g.count += 1;
@@ -430,9 +451,10 @@ export function autoFoodPlans(entries, today, { pastDays = 30, nextDays = 14 } =
       .filter((e) => e.type === "expense" && e.category === category && e.date >= since && e.date <= today)
       .reduce((s, e) => s + e.amount, 0);
     const perDay = round(spent / pastDays);
+    const amount = round((spent * nextDays) / pastDays);
     const from = addDays(today, 1);
     const to = addDays(today, nextDays);
-    return { auto: true, type: "expense", category, perDay, amount: round(perDay * nextDays), from, to, pastDays, nextDays, spent: round(spent) };
+    return { auto: true, type: "expense", category, perDay, amount, from, to, pastDays, nextDays, spent: round(spent) };
   });
 }
 
@@ -459,11 +481,15 @@ export function cashflowForecast(entries, budgets, plans, today, months = 6, aut
 
   for (const auto of autoPlans) {
     if (!(auto.perDay > 0)) continue;
+    let assigned = 0;
     for (let date = auto.from; date <= auto.to && date < until; date = addDays(date, 1)) {
       const m = monthOf(date);
       if (!planned.has(m)) planned.set(m, { income: 0, expense: new Map(), items: [] });
       const bucket = planned.get(m);
-      bucket.expense.set(auto.category, round((bucket.expense.get(auto.category) || 0) + auto.perDay));
+      // The last day takes the leftover paisa, so the days add up to the amount shown.
+      const share = date === auto.to ? round(auto.amount - assigned) : auto.perDay;
+      assigned = round(assigned + share);
+      bucket.expense.set(auto.category, round((bucket.expense.get(auto.category) || 0) + share));
     }
   }
 

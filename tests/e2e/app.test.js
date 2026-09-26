@@ -58,11 +58,20 @@ async function openReport(kind) {
 const account = async (name) =>
   page.$eval(`.account-card[aria-label^="${name}"] .account-balance`, (e) => e.textContent);
 
-async function addEntry(flow, category, amount, { date, reserve: into } = {}) {
+// If the card asks for a type (Ntorq: Petrol / Repair / Accessory), pick one.
+async function pickSubIfAsked(sub = "Petrol") {
+  if (await page.isVisible('.step[data-step="pick"]')) {
+    await page.tap(`#pick-grid .category-card:has-text("${sub}")`);
+    await settle();
+  }
+}
+
+async function addEntry(flow, category, amount, { date, reserve: into, sub } = {}) {
   await page.tap(`.type-card[data-flow=${flow}]`);
   await settle();
   await page.tap(`#pick-grid .category-card:has-text("${category}")`);
   await settle();
+  await pickSubIfAsked(sub);
   if (into) await page.tap(`#pay-from-chips .chip:has-text("${into}")`);
   await page.fill("#amount", String(amount));
   if (date) await page.fill("#date", date);
@@ -266,11 +275,12 @@ test("R11: 'Transfer all' moves the whole reserve even when it is split across a
   await screen("");
 });
 
-async function post(flow, category, amount, { reserve: into, account: acct } = {}) {
+async function post(flow, category, amount, { reserve: into, account: acct, sub } = {}) {
   await page.tap(`.type-card[data-flow=${flow}]`);
   await settle();
   await page.tap(`#pick-grid .category-card:has-text("${category}")`);
   await settle();
+  await pickSubIfAsked(sub);
   if (acct) await page.tap(`#account-chips .chip:has-text("${acct}")`);
   if (into) await page.tap(`#pay-from-chips .chip:has-text("${into}")`);
   await page.fill("#amount", String(amount));
@@ -613,6 +623,80 @@ test("R28: the Planned section shows automatic 14-day food lines from the last 3
   await page.waitForSelector("#screen-entries:not([hidden])");
   const shown = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
   assert.ok(shown.length >= 1 && shown.every((t) => t.includes("Mandatory Food")));
+  await page.tap("#f-clear-quick");
+  await screen("");
+});
+
+test("R29: tapping Ntorq asks Petrol or Repair / Accessory; the type is saved and editable", { skip }, async () => {
+  await screen("");
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Ntorq")');
+  await settle();
+  assert.equal(await page.textContent("#pick-hint"), "Ntorq: what was it for?");
+  const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
+  assert.deepEqual(names, ["Petrol", "Repair / Accessory"]);
+  assert.equal(await page.locator("#steps .dot").count(), 4);
+  await page.tap('#pick-grid .category-card:has-text("Repair / Accessory")');
+  await settle();
+  assert.equal(await page.textContent("#chosen-category"), "Ntorq · Repair / Accessory");
+  await page.fill("#amount", "1200");
+  await page.fill("#note", "helmet");
+  await page.tap("#post-btn");
+  await page.waitForSelector('.entry-card:has-text("Ntorq · Repair / Accessory")', { state: "attached" });
+  const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "helmet");
+  assert.deepEqual([saved.category, saved.subcategory], ["Ntorq", "Repair / Accessory"]);
+
+  // Other cards go straight to the amount.
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Transport")');
+  await settle();
+  assert.ok(await page.isVisible("#amount-form"));
+  for (let i = 0; i < 2; i++) {
+    await page.tap("#wizard-back");
+    await settle();
+  }
+
+  // The editor shows and changes the type.
+  await screen("entries");
+  await page.tap('.entry-card:has-text("helmet")');
+  await page.waitForSelector("dialog[open]");
+  assert.equal(await page.$eval('#edit-sub-chips .chip[aria-checked="true"] .chip-name', (e) => e.textContent), "Repair / Accessory");
+  await page.tap('#edit-sub-chips .chip:has-text("Petrol")');
+  await page.tap("#edit-save");
+  await page.waitForFunction(() => !document.querySelector("dialog").open);
+  const edited = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "helmet");
+  assert.equal(edited.subcategory, "Petrol");
+  await screen("");
+});
+
+test("R30: the spending report switches between Ntorq as one line and one line per type", { skip }, async () => {
+  await openReport("spending");
+  await page.tap('#report-body .qf[data-period="all"]');
+  const lines = async () => page.$$eval("#report-body .spend-row .entry-desc", (els) => els.map((e) => e.textContent));
+  const oneLine = await lines();
+  assert.ok(oneLine.includes("Ntorq"));
+  assert.ok(!oneLine.some((l) => l.startsWith("Ntorq ·")));
+
+  await page.tap('#report-body .qf[data-split="true"]');
+  const byType = await lines();
+  assert.ok(!byType.includes("Ntorq"));
+  assert.ok(byType.includes("Ntorq · Petrol"));
+  // Older Ntorq entries saved before types existed.
+  assert.ok(byType.includes("Ntorq · Unclassified"));
+  const entries = await (await page.request.get(URL_ + "api/entries")).json();
+  const ntorq = entries.filter((e) => e.type === "expense" && e.category === "Ntorq");
+  const total = (rows) => rows.reduce((s, e) => s + e.amount, 0);
+  const petrolText = await page.textContent('#report-body .spend-row:has-text("Ntorq · Petrol") .entry-amount');
+  assert.equal(petrolText, "₹" + total(ntorq.filter((e) => e.subcategory === "Petrol")).toLocaleString("en-IN", { minimumFractionDigits: 2 }));
+
+  await page.tap('#report-body .spend-row:has-text("Ntorq · Petrol")');
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  const shown = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.equal(shown.length, ntorq.filter((e) => e.subcategory === "Petrol").length);
+  assert.ok(shown.every((t) => t.includes("Ntorq · Petrol")));
+  assert.match(await page.textContent("#filter-summary"), /^Ntorq · Petrol: /);
   await page.tap("#f-clear-quick");
   await screen("");
 });

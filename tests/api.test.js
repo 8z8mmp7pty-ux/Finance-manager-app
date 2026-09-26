@@ -99,6 +99,17 @@ test("R17: only the known accounts are accepted (a typo can't create a new accou
   assert.equal((await post({ ...base, type: "contra", account: "Cash", toAccount: "Wallet", amount: 1 })).status, 400);
 });
 
+test("R29: an expense can carry a type inside its category (Ntorq: Petrol); others can't", { skip }, async () => {
+  const petrol = await post({ ...base, type: "expense", category: "Ntorq", subcategory: "Petrol", amount: 500 });
+  assert.equal(petrol.status, 201);
+  assert.equal(petrol.data.subcategory, "Petrol");
+  const income = await post({ ...base, type: "income", category: "Salary", subcategory: "Petrol", amount: 1 });
+  assert.equal(income.data.subcategory, "", "only expenses have a type");
+  const plain = await post({ ...base, type: "expense", category: "Transport", amount: 5 });
+  assert.equal(plain.data.subcategory, "");
+  assert.ok(plain.data.createdAt, "created time is returned (orders same-day entries)");
+});
+
 test("R1: invalid entries are rejected", { skip }, async () => {
   for (const body of [
     { ...base, type: "loan", category: "Salary", amount: 1 },

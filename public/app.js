@@ -18,6 +18,8 @@ import {
   cashflowForecast,
   UNCATEGORISED,
   autoFoodPlans,
+  SUBCATEGORIES,
+  UNCLASSIFIED,
 } from "./ledger.js";
 
 const CATEGORIES = {
@@ -58,6 +60,17 @@ function categoryIcon(type, name) {
   if (found) return found.icon;
   if (type === "expense" && RETIRED_ICONS[name]) return RETIRED_ICONS[name];
   return type === "income" ? "↓" : type === "expense" ? "↑" : "⇄";
+}
+
+// "Ntorq · Petrol" for entries with a type inside their category.
+function categoryTitle(e) {
+  const name = e.category || e.description;
+  return e.subcategory ? `${name} · ${e.subcategory}` : name;
+}
+
+function subcategoryIcon(category, sub) {
+  const found = (SUBCATEGORIES[category] || []).find((s) => s.name === sub);
+  return found ? found.icon : categoryIcon("expense", category);
 }
 
 function reserveIcon(name) {
@@ -260,8 +273,8 @@ function describe(entry) {
       ? "into " + entry.reserve
       : "";
   return {
-    title: entry.category || entry.description,
-    icon: categoryIcon(entry.type, entry.category),
+    title: categoryTitle(entry),
+    icon: categoryIcon(entry.type, entry.category), // Ntorq keeps its scooter logo (R7); the type is in the title
     meta: [note, via, accountNote],
   };
 }
@@ -306,6 +319,7 @@ function renderEntriesList() {
   emptyMsg.textContent = entries.length ? "No entries match these filters." : "No entries yet.";
   const t = totalsOf(shown);
   filterSummary.textContent =
+    (filters.subcategory ? `${filters.category} · ${filters.subcategory}: ` : "") +
     `${shown.length} ${shown.length === 1 ? "entry" : "entries"}` +
     (t.income ? ` · In ${currency.format(t.income)}` : "") +
     (t.expense ? ` · Out ${currency.format(t.expense)}` : "");
@@ -398,7 +412,7 @@ function goTo(screen) {
 // ---------- Entries screen filters ----------
 
 const filterSummary = document.getElementById("filter-summary");
-const EMPTY_FILTERS = { period: "all", type: "", category: "", reserve: "", account: "", from: "", to: "", search: "" };
+const EMPTY_FILTERS = { period: "all", type: "", category: "", subcategory: "", reserve: "", account: "", from: "", to: "", search: "" };
 const filters = { ...EMPTY_FILTERS };
 const filterInputs = {
   category: document.getElementById("f-category"),
@@ -437,7 +451,7 @@ function renderFilterControls() {
   }
   document.querySelectorAll("#quick-period .qf").forEach((b) => b.classList.toggle("active", b.dataset.period === filters.period));
   document.querySelectorAll("#quick-type .qf").forEach((b) => b.classList.toggle("active", b.dataset.type === filters.type));
-  const extra = ["category", "reserve", "account", "from", "to", "search"].filter((k) => filters[k]).length;
+  const extra = ["category", "subcategory", "reserve", "account", "from", "to", "search"].filter((k) => filters[k]).length;
   const count = document.getElementById("filter-count");
   count.hidden = extra === 0;
   count.textContent = String(extra);
@@ -463,7 +477,10 @@ document.querySelectorAll("#quick-type .qf").forEach((b) =>
   b.addEventListener("click", () => setFilters({ type: b.dataset.type }))
 );
 for (const [key, input] of Object.entries(filterInputs)) {
-  input.addEventListener(key === "search" ? "input" : "change", () => setFilters({ [key]: input.value }));
+  input.addEventListener(key === "search" ? "input" : "change", () =>
+    // Picking another category drops a type filter from inside the old one (e.g. Ntorq · Petrol).
+    setFilters(key === "category" ? { category: input.value, subcategory: "" } : { [key]: input.value })
+  );
 }
 document.getElementById("f-clear").addEventListener("click", () => setFilters({ ...EMPTY_FILTERS }));
 document.getElementById("f-clear-quick").addEventListener("click", () => setFilters({ ...EMPTY_FILTERS }));
@@ -476,6 +493,12 @@ const FLOWS = {
   transfer: ["type", "from", "to", "amount"],
   contra: ["type", "fromAccount", "toAccount", "amount"],
 };
+
+// The steps of the current flow: an expense whose card has types inside it (Ntorq) asks for the type.
+function flowStages() {
+  if (draft.flow === "expense" && SUBCATEGORIES[draft.category]) return ["type", "category", "sub", "amount"];
+  return FLOWS[draft.flow];
+}
 
 const wizard = document.getElementById("wizard");
 const wizardTitle = document.getElementById("wizard-title");
@@ -499,7 +522,7 @@ const availableText = document.getElementById("available-text");
 const moveAllBtn = document.getElementById("transfer-all");
 
 const EMPTY_DRAFT = {
-  flow: null, index: 0, category: null, reserve: GENERAL, from: null, to: null,
+  flow: null, index: 0, category: null, subcategory: "", reserve: GENERAL, from: null, to: null,
   account: DEFAULT_ACCOUNT, fromAccount: null, toAccount: null,
   transferAll: false, // "Transfer all": move the reserve's money out of every account that holds it
 };
@@ -507,7 +530,7 @@ const draft = { ...EMPTY_DRAFT };
 let postedTimer;
 
 function goToStage(stage, direction = "forward") {
-  const stages = draft.flow ? FLOWS[draft.flow] : ["type", "category", "amount"];
+  const stages = draft.flow ? flowStages() : ["type", "category", "amount"];
   draft.index = stages.indexOf(stage);
   const panel = stage === "type" ? "type" : stage === "amount" ? "amount" : "pick";
   showStatus(""); // messages belong to the step they were shown on
@@ -541,8 +564,19 @@ function goToStage(stage, direction = "forward") {
       CATEGORIES[draft.flow].map((c) => ({ key: c.name, icon: c.icon, name: c.name })),
       (name) => {
         draft.category = name;
+        draft.subcategory = "";
         // Income goes into its own reserve unless you pick another one on the next step.
         if (draft.flow === "income") draft.reserve = name;
+        goToStage(flowStages()[draft.index + 1]);
+      }
+    );
+  } else if (stage === "sub") {
+    wizardTitle.textContent = draft.category;
+    pickHint.textContent = `${draft.category}: what was it for?`;
+    renderPickCards(
+      SUBCATEGORIES[draft.category].map((s) => ({ key: s.name, icon: s.icon, name: s.name })),
+      (name) => {
+        draft.subcategory = name;
         goToStage("amount");
       }
     );
@@ -634,8 +668,8 @@ function showAmountStage() {
     chosenCategory.textContent = `${draft.fromAccount} → ${draft.toAccount}`;
     postBtn.textContent = "Post Contra";
   } else {
-    chosenIcon.textContent = categoryIcon(flow, draft.category);
-    chosenCategory.textContent = draft.category;
+    chosenIcon.textContent = draft.subcategory ? subcategoryIcon(draft.category, draft.subcategory) : categoryIcon(flow, draft.category);
+    chosenCategory.textContent = categoryTitle({ category: draft.category, subcategory: draft.subcategory });
     postBtn.textContent = "Post " + TYPE_LABEL[flow];
   }
 
@@ -696,7 +730,7 @@ function startFlow(flow) {
   draft.reserve = GENERAL;
   draft.account = DEFAULT_ACCOUNT;
   postedMsg.hidden = true;
-  goToStage(FLOWS[flow][1]);
+  goToStage(flowStages()[1]);
 }
 
 function startTransferFrom(name) {
@@ -726,12 +760,12 @@ wizard.querySelectorAll(".type-card[data-flow]").forEach((card) => {
 });
 
 backBtn.addEventListener("click", () => {
-  const stages = FLOWS[draft.flow];
+  const stages = flowStages();
   goToStage(stages[Math.max(0, draft.index - 1)], "back");
 });
 
 document.getElementById("chosen").addEventListener("click", () => {
-  goToStage(FLOWS[draft.flow][1], "back");
+  goToStage(flowStages()[1], "back");
 });
 
 moveAllBtn.addEventListener("click", () => {
@@ -780,7 +814,13 @@ amountForm.addEventListener("submit", async (event) => {
       : { type: "contra", reserve: draft.reserve, account: draft.fromAccount, toAccount: draft.toAccount };
   } else {
     if (!draft.category) return;
-    body = { type: draft.flow, category: draft.category, reserve: draft.reserve, account: draft.account };
+    body = {
+      type: draft.flow,
+      category: draft.category,
+      subcategory: draft.flow === "expense" ? draft.subcategory : "",
+      reserve: draft.reserve,
+      account: draft.account,
+    };
   }
   Object.assign(body, { description: noteInput.value.trim(), amount, date: dateInput.value || today() });
 
@@ -796,7 +836,7 @@ amountForm.addEventListener("submit", async (event) => {
       transfer: () => `✓ Moved ${currency.format(created.amount)} to ${created.toReserve}`,
       contra: () => `✓ Moved ${currency.format(created.amount)} from ${created.account} to ${created.toAccount}`,
       income: () => `✓ Added to ${reserveLabel(created.reserve)} · ${created.account}`,
-      expense: () => `✓ Paid from ${reserveLabel(created.reserve)} · ${created.account}`,
+      expense: () => `✓ ${categoryTitle(created)} paid from ${reserveLabel(created.reserve)} · ${created.account}`,
     }[created.type]());
   } catch (err) {
     showStatus(err.message);
@@ -871,7 +911,7 @@ const editDate = document.getElementById("edit-date");
 const editSave = document.getElementById("edit-save");
 const editDelete = document.getElementById("edit-delete");
 // kind: "entry" (income/expense), "transfer" or "contra"
-const edit = { id: null, kind: "entry", category: "", reserve: GENERAL, from: "", to: "", account: DEFAULT_ACCOUNT, toAccount: "" };
+const edit = { id: null, kind: "entry", category: "", subcategory: "", reserve: GENERAL, from: "", to: "", account: DEFAULT_ACCOUNT, toAccount: "" };
 
 function renderEditFields() {
   const skipId = edit.id;
@@ -950,10 +990,35 @@ function renderEditFields() {
     btn.addEventListener("click", () => {
       // An income that was in its own type's reserve follows the new type.
       if (type === "income" && edit.reserve === (edit.category || GENERAL)) edit.reserve = cat.name;
+      if (edit.category !== cat.name) edit.subcategory = "";
       edit.category = cat.name;
       renderEditFields();
     });
     editCategories.append(btn);
+  }
+
+  // Type inside the category (e.g. Ntorq: Petrol or Repair / Accessory).
+  const subs = type === "expense" ? SUBCATEGORIES[edit.category] : null;
+  const subGroup = document.getElementById("edit-sub-group");
+  subGroup.hidden = !subs;
+  if (subs) {
+    document.getElementById("edit-sub-label").textContent = `${edit.category} type`;
+    const chips = document.getElementById("edit-sub-chips");
+    chips.innerHTML = "";
+    for (const sub of subs) {
+      const chip = el("button", "chip");
+      chip.type = "button";
+      chip.setAttribute("role", "radio");
+      chip.setAttribute("aria-checked", String(sub.name === edit.subcategory));
+      chip.append(el("span", "chip-icon", sub.icon), el("span", "chip-name", sub.name));
+      chip.addEventListener("click", () => {
+        edit.subcategory = sub.name;
+        renderEditFields();
+      });
+      chips.append(chip);
+    }
+  } else {
+    edit.subcategory = "";
   }
 
   document.getElementById("edit-pay-from-label").textContent =
@@ -972,6 +1037,7 @@ function openEditor(entry) {
     id: entry.id,
     kind,
     category: entry.category,
+    subcategory: entry.subcategory || "",
     reserve: kind === "transfer" ? GENERAL : entry.reserve || entry.category || GENERAL,
     from: kind === "transfer" ? entry.reserve : "",
     to: kind === "transfer" ? entry.toReserve : "",
@@ -1039,7 +1105,7 @@ editForm.addEventListener("submit", async (event) => {
       return;
     }
     const type = editForm.elements.type.value;
-    body = { type, category: edit.category, reserve: edit.reserve, account: edit.account };
+    body = { type, category: edit.category, subcategory: edit.subcategory, reserve: edit.reserve, account: edit.account };
   }
   Object.assign(body, { description: note, amount, date: editDate.value });
 
@@ -1084,7 +1150,7 @@ editDelete.addEventListener("click", async () => {
 const reportBody = document.getElementById("report-body");
 const reportTitle = document.getElementById("report-title");
 const reportBack = document.getElementById("report-back");
-const report = { stage: "menu", reserve: null, month: null, lotId: null, period: "this-month" };
+const report = { stage: "menu", reserve: null, month: null, lotId: null, period: "this-month", bySubcategory: false };
 
 function monthLabel(month) {
   return new Date(month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -1208,7 +1274,22 @@ function renderSpending() {
   }
   reportBody.append(chips);
 
-  const { total, rows } = spendingByCategory(entries, { period: report.period }, today());
+  // Categories with types inside them (Ntorq): one line, or one line per type.
+  const split = el("div", "quick-filters split-switch");
+  split.append(el("span", "switch-label", "Ntorq as"));
+  for (const [value, label] of [[false, "One line"], [true, "Petrol / Repair"]]) {
+    const b = el("button", "qf" + (report.bySubcategory === value ? " active" : ""), label);
+    b.type = "button";
+    b.dataset.split = String(value);
+    b.addEventListener("click", () => {
+      report.bySubcategory = value;
+      renderReport();
+    });
+    split.append(b);
+  }
+  reportBody.append(split);
+
+  const { total, rows } = spendingByCategory(entries, { period: report.period }, today(), { bySubcategory: report.bySubcategory });
   const budgetOf = new Map(budgets.map((b) => [b.category, b.amount]));
   const tile = el("div", "report-tile spend-total");
   tile.append(el("span", "label", "Total spent"), el("span", "tile-value expense", currency.format(total)));
@@ -1229,8 +1310,11 @@ function renderSpending() {
     const budget = budgetOf.get(row.category);
     if (budget && report.period === "this-month") details.push(`budget ${currency.format(budget)}`);
     info.append(el("p", "entry-desc", row.category), el("p", "entry-date", details.join(" · ")), usageBar(row.share));
-    btn.append(el("span", "row-icon", categoryIcon("expense", row.category)), info, el("span", "entry-amount expense", currency.format(row.amount)));
-    btn.addEventListener("click", () => showEntries({ period: report.period, type: "expense", category: row.category }));
+    const icon = row.subcategory ? subcategoryIcon(row.parent, row.subcategory) : categoryIcon("expense", row.category);
+    btn.append(el("span", "row-icon", icon), info, el("span", "entry-amount expense", currency.format(row.amount)));
+    btn.addEventListener("click", () =>
+      showEntries({ period: report.period, type: "expense", category: row.parent, subcategory: row.subcategory })
+    );
     li.append(btn);
     listEl.append(li);
   }
@@ -1362,7 +1446,7 @@ function renderUsage(r, heading) {
     for (const item of r.items) {
       const e = item.entry;
       const li = el("li", "report-row");
-      const title = e.type === "transfer" ? "Transferred to " + e.toReserve : e.category || e.description;
+      const title = e.type === "transfer" ? "Transferred to " + e.toReserve : categoryTitle(e);
       const details = [formatDate(e.date)];
       if (e.type !== "transfer" && e.category && e.description) details.unshift(e.description);
       if (item.amount < e.amount) {
@@ -1491,7 +1575,7 @@ function renderBudget() {
     info.append(el("p", "entry-desc", auto.category), el("p", "entry-date", meta));
     btn.append(el("span", "row-icon", categoryIcon("expense", auto.category)), info, el("span", "entry-amount expense", "−" + currency.format(auto.amount)));
     btn.addEventListener("click", () =>
-      showEntries({ type: "expense", category: auto.category, from: autoPlanSince(auto) })
+      showEntries({ type: "expense", category: auto.category, from: autoPlanSince(auto), to: today() })
     );
     li.append(btn, el("span", "auto-badge", "Auto"));
     planList.append(li);

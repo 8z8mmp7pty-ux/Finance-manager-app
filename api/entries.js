@@ -4,6 +4,7 @@ import { send, readBody, text } from "../lib/http.js";
 function validate(body) {
   const type = body.type;
   let category = text(body.category);
+  let subcategory = text(body.subcategory);
   const description = text(body.description);
   let reserve = text(body.reserve);
   let toReserve = text(body.toReserve);
@@ -16,13 +17,15 @@ function validate(body) {
     return "Type must be income, expense, transfer or contra";
   }
   if (description.length > 100) return "Note is too long (max 100 characters)";
-  if ([category, reserve, toReserve, account, toAccount].some((v) => v.length > 40)) {
+  if ([category, subcategory, reserve, toReserve, account, toAccount].some((v) => v.length > 40)) {
     return "Names are limited to 40 characters";
   }
 
   if (!ACCOUNTS.includes(account) || (toAccount && !ACCOUNTS.includes(toAccount))) {
     return "Account must be one of: " + ACCOUNTS.join(", ");
   }
+
+  if (type !== "expense" || !category) subcategory = "";
 
   if (type === "contra") {
     // Moves money between accounts; the reserve it belongs to stays the same.
@@ -50,11 +53,11 @@ function validate(body) {
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
     return "Date must be in YYYY-MM-DD format";
   }
-  return { type, category, description, reserve, toReserve, account, toAccount, amount, date };
+  return { type, category, subcategory, description, reserve, toReserve, account, toAccount, amount, date };
 }
 
 const SELECT_COLUMNS =
-  "id, type, category, description, reserve, to_reserve AS \"toReserve\", account, to_account AS \"toAccount\", amount, to_char(entry_date, 'YYYY-MM-DD') AS date";
+  "id, type, category, subcategory, description, reserve, to_reserve AS \"toReserve\", account, to_account AS \"toAccount\", amount, created_at AS \"createdAt\", to_char(entry_date, 'YYYY-MM-DD') AS date";
 
 export default async function handler(req, res) {
   try {
@@ -77,11 +80,11 @@ export default async function handler(req, res) {
 
       const { rows } = await query(
         `INSERT INTO entries
-           (type, category, description, reserve, to_reserve, account, to_account, amount, entry_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           (type, category, description, reserve, to_reserve, account, to_account, amount, entry_date, subcategory)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING ${SELECT_COLUMNS}`,
         [entry.type, entry.category, entry.description, entry.reserve, entry.toReserve,
-         entry.account, entry.toAccount, entry.amount, entry.date]
+         entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory]
       );
       return send(res, 201, rows[0]);
     }
@@ -102,11 +105,11 @@ export default async function handler(req, res) {
       const { rows } = await query(
         `UPDATE entries
          SET type = $1, category = $2, description = $3, reserve = $4, to_reserve = $5,
-             account = $6, to_account = $7, amount = $8, entry_date = $9
-         WHERE id = $10
+             account = $6, to_account = $7, amount = $8, entry_date = $9, subcategory = $10
+         WHERE id = $11
          RETURNING ${SELECT_COLUMNS}`,
         [entry.type, entry.category, entry.description, entry.reserve, entry.toReserve,
-         entry.account, entry.toAccount, entry.amount, entry.date, id]
+         entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory, id]
       );
       return rows.length ? send(res, 200, rows[0]) : send(res, 404, { error: "Entry not found" });
     }

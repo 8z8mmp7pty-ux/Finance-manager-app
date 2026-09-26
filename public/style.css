@@ -551,3 +551,5 @@ li:last-child > button.report-row { border-bottom: none; }
 .forecast-start th, .forecast-start td { color: var(--muted); }
 #plan-form .field-label { margin-bottom: -6px; }
 .auto-badge { flex-shrink: 0; padding: 4px 10px; border-radius: 999px; background: var(--transfer-bg); color: var(--transfer); font-size: 0.75rem; font-weight: 700; }
+.split-switch { align-items: center; }
+.switch-label { flex-shrink: 0; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
