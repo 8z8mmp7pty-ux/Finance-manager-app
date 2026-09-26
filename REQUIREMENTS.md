@@ -22,7 +22,7 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 | R4  | **No password / login.** The app opens straight to the balance. | `tests/api.test.js` (R4), `tests/e2e/app.test.js` (R4) |
 | R5  | Entries are shown as **tappable cards**; tapping one opens an editor to change or delete it. | `tests/api.test.js` (R5), `tests/e2e/app.test.js` (R5) |
 | R6  | Adding an entry is a **ride through cards**: first *Income* or *Expense* (or *Transfer* / *Contra*), then a card for the type (category), then the amount, then **Post**. Only the current step is visible. | `tests/e2e/app.test.js` (R6/R7) |
-| R7  | Categories — income: Salary, Business, Freelance, Investments, Interest, Rental, Gift, Refund, Other. Expense: Food & Dining, Groceries, Rent, Bills & Utilities, Transport, Shopping, Health, Education, Entertainment, Travel, EMI & Loans, Other. | `tests/e2e/app.test.js` (R6/R7) |
+| R7  | Categories — income: Salary, Business, Freelance, Investments, Interest, Rental, Gift, Refund, Other. Expense: Food & Dining, Groceries, Rent, Bills & Utilities, Transport, Shopping, Health, Education, Entertainment, Travel, For Mom, Dad, Muthu, Other. | `tests/e2e/app.test.js` (R6/R7, R7) |
 | R8  | **Every receipt acts as a reserve (bucket).** Each income type pours into its own reserve (e.g. Salary income every month pours into the Salary reserve). A **General Reserve** always exists. | `tests/ledger.test.js` (R8), `tests/api.test.js` (R8), `tests/e2e/app.test.js` (R8/R9/R10) |
 | R9  | An income can be **allotted to another reserve** instead of its own (e.g. an income with no reserve of its own goes to General Reserve), when posting it or later in the editor. | `tests/api.test.js` (R9), `tests/ledger.test.js` (R12), `tests/e2e/app.test.js` (R8/R9/R10, R9) |
 | R10 | Expenses are paid from **General Reserve** by default; the owner can choose to apply an expense to another reserve (e.g. Salary). | `tests/api.test.js` (R10), `tests/e2e/app.test.js` (R8/R9/R10) |
@@ -46,3 +46,4 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 - R9, R13, R14, R16: income allotted to other reserves, FIFO, "what happened to my salary" report, requirements guardian.
 - R17–R20: accounts (Super Money default, GPay, Cash), contra entries, reserves × accounts grid. R6 and R12 extended for contra/accounts.
 - R11 clarified with accounts: a typed amount moves within one account; Transfer all moves the whole reserve from every account. Accounts are limited to the three known ones (R17).
+- R7: the "EMI & Loans" expense card was replaced by "For Mom, Dad, Muthu" at the owner's request.

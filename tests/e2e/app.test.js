@@ -341,3 +341,19 @@ test("R11: 'nothing to move' is shown, then cleared when leaving; new flows star
   await page.tap("#wizard-back");
   await settle();
 });
+
+test("R7: expense cards include 'For Mom, Dad, Muthu' instead of 'EMI & Loans'", { skip }, async () => {
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
+  assert.deepEqual(names, [
+    "Food & Dining", "Groceries", "Rent", "Bills & Utilities", "Transport", "Shopping",
+    "Health", "Education", "Entertainment", "Travel", "For Mom, Dad, Muthu", "Other",
+  ]);
+  await page.tap('#pick-grid .category-card:has-text("For Mom, Dad, Muthu")');
+  await settle();
+  await page.fill("#amount", "2000");
+  await page.tap("#post-btn");
+  await page.waitForSelector('.entry-card:has-text("For Mom, Dad, Muthu")');
+  assert.match(await page.textContent('.entry-card:has-text("For Mom, Dad, Muthu")'), /❤️/);
+});

@@ -32,7 +32,7 @@ const CATEGORIES = {
     { name: "Education", icon: "📚" },
     { name: "Entertainment", icon: "🎬" },
     { name: "Travel", icon: "✈️" },
-    { name: "EMI & Loans", icon: "💳" },
+    { name: "For Mom, Dad, Muthu", icon: "❤️" },
     { name: "Other", icon: "➖" },
   ],
 };
