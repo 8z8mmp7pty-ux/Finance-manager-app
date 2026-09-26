@@ -24,7 +24,7 @@ const CATEGORIES = {
   expense: [
     { name: "Food & Dining", icon: "🍽️" },
     { name: "Groceries", icon: "🛒" },
-    { name: "Rent", icon: "🏠" },
+    { name: "Ntorq", icon: "🛵" },
     { name: "Bills & Utilities", icon: "💡" },
     { name: "Transport", icon: "🚗" },
     { name: "Shopping", icon: "🛍️" },

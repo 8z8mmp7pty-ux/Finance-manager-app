@@ -85,7 +85,7 @@ test("R8/R9/R10: income reserves, income allotted elsewhere, expense paid from a
   await cards(2);
   await addEntry("income", "Gift", 1000, { date: "2026-08-02", reserve: "General Reserve" });
   await cards(3);
-  await addEntry("expense", "Rent", 20000, { date: "2026-07-10", reserve: "Salary" });
+  await addEntry("expense", "Ntorq", 20000, { date: "2026-07-10", reserve: "Salary" });
   await cards(4);
   await addEntry("expense", "Shopping", 45000, { date: "2026-08-03", reserve: "Salary" });
   await cards(5);
@@ -342,12 +342,12 @@ test("R11: 'nothing to move' is shown, then cleared when leaving; new flows star
   await settle();
 });
 
-test("R7: expense cards include 'For Mom, Dad, Muthu' instead of 'EMI & Loans'", { skip }, async () => {
+test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Rent' and 'EMI & Loans')", { skip }, async () => {
   await page.tap(".type-card[data-flow=expense]");
   await settle();
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
   assert.deepEqual(names, [
-    "Food & Dining", "Groceries", "Rent", "Bills & Utilities", "Transport", "Shopping",
+    "Food & Dining", "Groceries", "Ntorq", "Bills & Utilities", "Transport", "Shopping",
     "Health", "Education", "Entertainment", "Travel", "For Mom, Dad, Muthu", "Other",
   ]);
   await page.tap('#pick-grid .category-card:has-text("For Mom, Dad, Muthu")');
@@ -356,4 +356,6 @@ test("R7: expense cards include 'For Mom, Dad, Muthu' instead of 'EMI & Loans'",
   await page.tap("#post-btn");
   await page.waitForSelector('.entry-card:has-text("For Mom, Dad, Muthu")');
   assert.match(await page.textContent('.entry-card:has-text("For Mom, Dad, Muthu")'), /❤️/);
+  // R7: "Ntorq" (scooter) replaced "Rent".
+  assert.match(await page.textContent('.entry-card:has-text("Ntorq")'), /🛵/);
 });
