@@ -18,20 +18,23 @@ async function readBody(req) {
 
 function validate(body) {
   const type = body.type;
+  const category = typeof body.category === "string" ? body.category.trim() : "";
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const amount = Math.round(Number(body.amount) * 100) / 100;
   const date = body.date;
 
   if (type !== "income" && type !== "expense") return "Type must be income or expense";
-  if (!description || description.length > 100) return "Description is required (max 100 characters)";
+  if (category.length > 40) return "Category is too long (max 40 characters)";
+  if (description.length > 100) return "Note is too long (max 100 characters)";
+  if (!category && !description) return "Choose a category";
   if (!Number.isFinite(amount) || amount <= 0 || amount >= 1e12) return "Amount must be a positive number";
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
     return "Date must be in YYYY-MM-DD format";
   }
-  return { type, description, amount, date };
+  return { type, category, description, amount, date };
 }
 
-const SELECT_COLUMNS = "id, type, description, amount, to_char(entry_date, 'YYYY-MM-DD') AS date";
+const SELECT_COLUMNS = "id, type, category, description, amount, to_char(entry_date, 'YYYY-MM-DD') AS date";
 
 export default async function handler(req, res) {
   try {
@@ -53,10 +56,10 @@ export default async function handler(req, res) {
       if (typeof entry === "string") return send(res, 400, { error: entry });
 
       const { rows } = await query(
-        `INSERT INTO entries (type, description, amount, entry_date)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO entries (type, category, description, amount, entry_date)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING ${SELECT_COLUMNS}`,
-        [entry.type, entry.description, entry.amount, entry.date]
+        [entry.type, entry.category, entry.description, entry.amount, entry.date]
       );
       return send(res, 201, rows[0]);
     }
@@ -75,10 +78,10 @@ export default async function handler(req, res) {
       if (typeof entry === "string") return send(res, 400, { error: entry });
 
       const { rows } = await query(
-        `UPDATE entries SET type = $1, description = $2, amount = $3, entry_date = $4
-         WHERE id = $5
+        `UPDATE entries SET type = $1, category = $2, description = $3, amount = $4, entry_date = $5
+         WHERE id = $6
          RETURNING ${SELECT_COLUMNS}`,
-        [entry.type, entry.description, entry.amount, entry.date, id]
+        [entry.type, entry.category, entry.description, entry.amount, entry.date, id]
       );
       return rows.length ? send(res, 200, rows[0]) : send(res, 404, { error: "Entry not found" });
     }

@@ -3,7 +3,7 @@
 A simple personal finance manager: record income and expense entries and see your current balance.
 Entries are stored in a **PostgreSQL** database (open source), so they are available on every device.
 
-- Add income or expense entries (description, amount, date)
+- Add entries step by step with tap cards: Income or Expense → category (Salary, Rent, Groceries…) → amount → Post
 - See total income, total expenses and current balance
 - Entries shown as tap cards: tap a card to edit or delete it
 

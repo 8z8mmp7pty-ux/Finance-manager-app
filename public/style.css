@@ -27,6 +27,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -51,9 +52,8 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; }
 .income { color: var(--income); }
 .expense { color: var(--expense); }
 form { display: flex; flex-direction: column; gap: 10px; }
-.row { display: flex; gap: 10px; }
-.row input { flex: 1; min-width: 0; }
 input[type="text"], input[type="number"], input[type="date"] {
+  width: 100%;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -70,10 +70,10 @@ button {
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.empty, .note { color: var(--muted); text-align: center; }
-.note { font-size: 0.8rem; }
 button:disabled { opacity: 0.6; cursor: default; }
+.empty { color: var(--muted); text-align: center; }
 .status {
   text-align: center;
   padding: 10px;
@@ -84,41 +84,150 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 .status.info { color: var(--muted); }
 
-/* Income / Expense tap cards */
-.type-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.type-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 8px;
-  border: 2px solid var(--border);
+/* Shared card look for anything tappable */
+.type-card, .category-card, .entry-card, .chosen {
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg);
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.1s, border-color 0.15s, background 0.15s;
+  box-shadow: var(--shadow);
+  transition: transform 0.1s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
 }
-.type-card:active { transform: scale(0.97); }
-.type-card input { position: absolute; opacity: 0; pointer-events: none; }
+.type-card:active, .category-card:active, .entry-card:active, .chosen:active { transform: scale(0.97); }
+@media (hover: hover) {
+  .type-card:hover, .category-card:hover, .entry-card:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
+}
 .type-icon {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   font-size: 1.2rem;
   font-weight: 700;
+  flex-shrink: 0;
 }
-.type-name { font-weight: 600; }
-.type-card.income .type-icon { background: var(--income-bg); color: var(--income); }
-.type-card.expense .type-icon { background: var(--expense-bg); color: var(--expense); }
-.type-card.income:has(input:checked) { border-color: var(--income); background: var(--income-bg); }
-.type-card.expense:has(input:checked) { border-color: var(--expense); background: var(--expense-bg); }
-.type-card:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.income .type-icon { background: var(--income-bg); color: var(--income); }
+.expense .type-icon { background: var(--expense-bg); color: var(--expense); }
 
-/* Entry cards */
+/* ---------- Add entry wizard ---------- */
+.wizard { overflow: hidden; }
+.wizard-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; min-height: 36px; }
+.wizard-header h2 { margin: 0; flex: 1; }
+.wizard[data-type="income"] .wizard-header h2 { color: var(--income); }
+.wizard[data-type="expense"] .wizard-header h2 { color: var(--expense); }
+.back-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1.2rem;
+}
+.steps { display: flex; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background 0.2s; }
+.dot.active { background: var(--accent); }
+.wizard[data-type="income"] .dot.active { background: var(--income); }
+.wizard[data-type="expense"] .dot.active { background: var(--expense); }
+.step-hint { color: var(--muted); margin: 0 0 12px; font-size: 0.9rem; }
+
+.slide-forward { animation: slide-in-right 0.22s ease-out; }
+.slide-back { animation: slide-in-left 0.22s ease-out; }
+@keyframes slide-in-right { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+@keyframes slide-in-left { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .slide-forward, .slide-back { animation: none; }
+}
+
+/* Step 1: Income / Expense */
+.type-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 8px;
+  border-width: 2px;
+}
+.type-card .type-icon { width: 52px; height: 52px; font-size: 1.5rem; }
+.type-name { font-weight: 700; font-size: 1.1rem; }
+.type-card.income .type-name { color: var(--income); }
+.type-card.expense .type-name { color: var(--expense); }
+.type-sub { color: var(--muted); font-size: 0.8rem; }
+.type-card.income:hover { border-color: var(--income); }
+.type-card.expense:hover { border-color: var(--expense); }
+
+/* Step 2: categories */
+.category-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.category-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 4px;
+  min-height: 92px;
+  font-weight: 500;
+}
+.category-icon { font-size: 1.7rem; line-height: 1; }
+.category-name { font-size: 0.85rem; text-align: center; line-height: 1.2; }
+.category-card.income:hover { border-color: var(--income); }
+.category-card.expense:hover { border-color: var(--expense); }
+.category-card[aria-checked="true"].income { border: 2px solid var(--income); background: var(--income-bg); }
+.category-card[aria-checked="true"].expense { border: 2px solid var(--expense); background: var(--expense-bg); }
+.category-grid.compact { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.category-grid.compact .category-card { min-height: 70px; padding: 8px 2px; box-shadow: none; }
+.category-grid.compact .category-icon { font-size: 1.3rem; }
+.category-grid.compact .category-name { font-size: 0.72rem; }
+
+/* Step 3: amount */
+.chosen {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  text-align: left;
+  box-shadow: none;
+  background: var(--bg);
+}
+.chosen-icon { font-size: 1.6rem; }
+.chosen-text { flex: 1; display: flex; flex-direction: column; }
+.chosen-type { font-size: 0.75rem; color: var(--muted); font-weight: 500; }
+.chosen-category { font-weight: 700; }
+.chosen-change { color: var(--accent); font-size: 0.85rem; font-weight: 500; }
+.amount-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.amount-field:focus-within { border-color: var(--accent); }
+.wizard[data-type="income"] .amount-field:focus-within { border-color: var(--income); }
+.wizard[data-type="expense"] .amount-field:focus-within { border-color: var(--expense); }
+.currency { font-size: 2rem; font-weight: 700; color: var(--muted); }
+.amount-field input[type="number"] {
+  border: none;
+  background: transparent;
+  padding: 6px 0;
+  font-size: 2rem;
+  font-weight: 700;
+  outline: none;
+}
+.amount-field.small .currency, .amount-field.small input[type="number"] { font-size: 1.4rem; }
+.post-btn { padding: 14px; font-size: 1.05rem; }
+.wizard[data-type="income"] .post-btn { background: var(--income); }
+.wizard[data-type="expense"] .post-btn { background: var(--expense); }
+@media (prefers-color-scheme: dark) {
+  .wizard[data-type] .post-btn { color: #111827; }
+}
+.posted { margin: 12px 0 0; text-align: center; color: var(--income); font-weight: 600; }
+
+/* ---------- Entry cards ---------- */
 .section-title { display: flex; align-items: baseline; justify-content: space-between; }
 .hint { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
 .entry-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -128,34 +237,22 @@ button:disabled { opacity: 0.6; cursor: default; }
   align-items: center;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--border);
   border-left: 5px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
-  color: var(--text);
-  box-shadow: var(--shadow);
   text-align: left;
-  font: inherit;
   font-weight: 400;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.1s, box-shadow 0.15s;
 }
-.entry-card:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
-.entry-card:active { transform: scale(0.98); }
 .entry-card.income { border-left-color: var(--income); }
 .entry-card.expense { border-left-color: var(--expense); }
-.entry-card .type-icon { flex-shrink: 0; }
-.entry-card.income .type-icon { background: var(--income-bg); color: var(--income); }
-.entry-card.expense .type-icon { background: var(--expense-bg); color: var(--expense); }
 .entry-info { flex: 1; min-width: 0; }
 .entry-desc { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-.entry-date { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
+.entry-date { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
 .entry-amount { font-weight: 700; white-space: nowrap; }
 
-/* Edit sheet */
+/* ---------- Edit sheet ---------- */
 dialog {
   width: min(100% - 32px, 480px);
   max-width: none;
+  max-height: 90vh;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -174,4 +271,17 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .sheet-header { display: flex; align-items: center; justify-content: space-between; }
 .sheet-header h2 { margin: 0; }
 .icon-btn { background: transparent; color: var(--muted); padding: 4px 8px; font-size: 1.1rem; }
+.type-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.toggle {
+  padding: 10px;
+  text-align: center;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.toggle.income:has(input:checked) { border-color: var(--income); background: var(--income-bg); }
+.toggle.expense:has(input:checked) { border-color: var(--expense); background: var(--expense-bg); }
+.toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.danger { background: transparent; color: var(--expense); border: 1px solid var(--expense); }

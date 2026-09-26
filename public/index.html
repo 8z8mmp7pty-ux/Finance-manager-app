@@ -22,28 +22,58 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>Add Entry</h2>
-        <form id="entry-form">
-          <div class="type-cards" role="radiogroup" aria-label="Entry type">
-            <label class="type-card income">
-              <input type="radio" name="type" value="income" checked>
+      <section class="card wizard" id="wizard">
+        <div class="wizard-header">
+          <button type="button" id="wizard-back" class="back-btn" aria-label="Back" hidden>←</button>
+          <h2 id="wizard-title">Add Entry</h2>
+          <div class="steps" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+        </div>
+
+        <!-- Step 1: income or expense -->
+        <div class="step" data-step="1">
+          <p class="step-hint">What would you like to add?</p>
+          <div class="type-cards">
+            <button type="button" class="type-card income" data-type="income">
               <span class="type-icon" aria-hidden="true">↓</span>
               <span class="type-name">Income</span>
-            </label>
-            <label class="type-card expense">
-              <input type="radio" name="type" value="expense">
+              <span class="type-sub">Money in</span>
+            </button>
+            <button type="button" class="type-card expense" data-type="expense">
               <span class="type-icon" aria-hidden="true">↑</span>
               <span class="type-name">Expense</span>
-            </label>
+              <span class="type-sub">Money out</span>
+            </button>
           </div>
-          <input id="description" type="text" placeholder="Description (e.g. Salary, Groceries)" required maxlength="100">
-          <div class="row">
-            <input id="amount" type="number" placeholder="Amount" min="0.01" step="0.01" required>
-            <input id="date" type="date" required>
-          </div>
-          <button type="submit">Add Entry</button>
+        </div>
+
+        <!-- Step 2: category -->
+        <div class="step" data-step="2" hidden>
+          <p class="step-hint" id="category-hint">Choose a type</p>
+          <div class="category-grid" id="category-grid"></div>
+        </div>
+
+        <!-- Step 3: amount -->
+        <form class="step" data-step="3" id="amount-form" hidden>
+          <button type="button" class="chosen" id="chosen" aria-label="Change category">
+            <span class="chosen-icon" id="chosen-icon" aria-hidden="true"></span>
+            <span class="chosen-text">
+              <span class="chosen-type" id="chosen-type"></span>
+              <span class="chosen-category" id="chosen-category"></span>
+            </span>
+            <span class="chosen-change">Change</span>
+          </button>
+          <label class="amount-field">
+            <span class="currency" aria-hidden="true">₹</span>
+            <input id="amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">
+          </label>
+          <input id="note" type="text" placeholder="Note (optional)" maxlength="100">
+          <input id="date" type="date" required aria-label="Date">
+          <button type="submit" id="post-btn" class="post-btn">Post Entry</button>
         </form>
+
+        <p id="posted" class="posted" hidden>✓ Entry posted</p>
       </section>
 
       <section>
@@ -60,27 +90,22 @@
         <h2 id="edit-title">Edit Entry</h2>
         <button type="button" id="edit-close" class="icon-btn" aria-label="Close">✕</button>
       </div>
-      <div class="type-cards" role="radiogroup" aria-label="Entry type">
-        <label class="type-card income">
-          <input type="radio" name="type" value="income">
-          <span class="type-icon" aria-hidden="true">↓</span>
-          <span class="type-name">Income</span>
-        </label>
-        <label class="type-card expense">
-          <input type="radio" name="type" value="expense">
-          <span class="type-icon" aria-hidden="true">↑</span>
-          <span class="type-name">Expense</span>
-        </label>
+      <div class="type-toggle" role="radiogroup" aria-label="Entry type">
+        <label class="toggle income"><input type="radio" name="type" value="income"> Income</label>
+        <label class="toggle expense"><input type="radio" name="type" value="expense"> Expense</label>
       </div>
-      <input id="edit-description" type="text" placeholder="Description" required maxlength="100">
-      <div class="row">
-        <input id="edit-amount" type="number" placeholder="Amount" min="0.01" step="0.01" required>
-        <input id="edit-date" type="date" required>
-      </div>
+      <div class="category-grid compact" id="edit-categories" role="radiogroup" aria-label="Category"></div>
+      <label class="amount-field small">
+        <span class="currency" aria-hidden="true">₹</span>
+        <input id="edit-amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">
+      </label>
+      <input id="edit-note" type="text" placeholder="Note (optional)" maxlength="100">
+      <input id="edit-date" type="date" required aria-label="Date">
       <button type="submit" id="edit-save">Save Changes</button>
       <button type="button" id="edit-delete" class="danger">Delete Entry</button>
     </form>
   </dialog>
+
   <script src="app.js"></script>
 </body>
 </html>

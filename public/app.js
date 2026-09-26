@@ -1,11 +1,40 @@
+const CATEGORIES = {
+  income: [
+    { name: "Salary", icon: "💼" },
+    { name: "Business", icon: "🏪" },
+    { name: "Freelance", icon: "💻" },
+    { name: "Investments", icon: "📈" },
+    { name: "Interest", icon: "🏦" },
+    { name: "Rental", icon: "🏠" },
+    { name: "Gift", icon: "🎁" },
+    { name: "Refund", icon: "↩️" },
+    { name: "Other", icon: "➕" },
+  ],
+  expense: [
+    { name: "Food & Dining", icon: "🍽️" },
+    { name: "Groceries", icon: "🛒" },
+    { name: "Rent", icon: "🏠" },
+    { name: "Bills & Utilities", icon: "💡" },
+    { name: "Transport", icon: "🚗" },
+    { name: "Shopping", icon: "🛍️" },
+    { name: "Health", icon: "💊" },
+    { name: "Education", icon: "📚" },
+    { name: "Entertainment", icon: "🎬" },
+    { name: "Travel", icon: "✈️" },
+    { name: "EMI & Loans", icon: "💳" },
+    { name: "Other", icon: "➖" },
+  ],
+};
+
+const TYPE_LABEL = { income: "Income", expense: "Expense" };
+
+function categoryIcon(type, name) {
+  const found = CATEGORIES[type].find((c) => c.name === name);
+  return found ? found.icon : type === "income" ? "↓" : "↑";
+}
+
 const appSection = document.getElementById("app");
 const statusEl = document.getElementById("status");
-
-const form = document.getElementById("entry-form");
-const submitBtn = form.querySelector("button[type=submit]");
-const descriptionInput = document.getElementById("description");
-const amountInput = document.getElementById("amount");
-const dateInput = document.getElementById("date");
 const list = document.getElementById("entries");
 const emptyMsg = document.getElementById("empty");
 const balanceEl = document.getElementById("balance");
@@ -39,6 +68,18 @@ function today() {
   return d.toISOString().slice(0, 10);
 }
 
+function formatDate(value) {
+  return new Date(value + "T00:00:00").toLocaleDateString("en-IN", {
+    day: "numeric", month: "short", year: "numeric",
+  });
+}
+
+function parseAmount(value) {
+  return Math.round(parseFloat(value) * 100) / 100;
+}
+
+// ---------- Entries list ----------
+
 function render() {
   list.innerHTML = "";
 
@@ -47,24 +88,25 @@ function render() {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "entry-card " + entry.type;
-    card.setAttribute("aria-label", `${entry.description}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
+
+    const title = entry.category || entry.description;
+    const note = entry.category ? entry.description : "";
+    card.setAttribute("aria-label", `${title}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
 
     const icon = document.createElement("span");
     icon.className = "type-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = entry.type === "income" ? "↓" : "↑";
+    icon.textContent = categoryIcon(entry.type, entry.category);
 
     const info = document.createElement("div");
     info.className = "entry-info";
     const desc = document.createElement("p");
     desc.className = "entry-desc";
-    desc.textContent = entry.description;
-    const date = document.createElement("p");
-    date.className = "entry-date";
-    date.textContent = new Date(entry.date + "T00:00:00").toLocaleDateString("en-IN", {
-      day: "numeric", month: "short", year: "numeric",
-    });
-    info.append(desc, date);
+    desc.textContent = title;
+    const meta = document.createElement("p");
+    meta.className = "entry-date";
+    meta.textContent = (note ? note + " · " : "") + formatDate(entry.date);
+    info.append(desc, meta);
 
     const amount = document.createElement("span");
     amount.className = "entry-amount " + entry.type;
@@ -105,17 +147,101 @@ async function loadEntries() {
   }
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const amount = Math.round(parseFloat(amountInput.value) * 100) / 100;
-  const description = descriptionInput.value.trim();
-  if (!description || !(amount > 0)) return;
+// ---------- Add entry: step-by-step cards ----------
 
-  submitBtn.disabled = true;
+const wizard = document.getElementById("wizard");
+const wizardTitle = document.getElementById("wizard-title");
+const backBtn = document.getElementById("wizard-back");
+const steps = [...wizard.querySelectorAll(".step")];
+const dots = [...wizard.querySelectorAll(".steps .dot")];
+const categoryGrid = document.getElementById("category-grid");
+const categoryHint = document.getElementById("category-hint");
+const amountForm = document.getElementById("amount-form");
+const amountInput = document.getElementById("amount");
+const noteInput = document.getElementById("note");
+const dateInput = document.getElementById("date");
+const postBtn = document.getElementById("post-btn");
+const postedMsg = document.getElementById("posted");
+
+const draft = { step: 1, type: null, category: null };
+let postedTimer;
+
+function goToStep(step, direction = "forward") {
+  draft.step = step;
+  steps.forEach((el) => {
+    const active = Number(el.dataset.step) === step;
+    el.hidden = !active;
+    el.classList.remove("slide-forward", "slide-back");
+    if (active) {
+      void el.offsetWidth; // restart the animation
+      el.classList.add(direction === "back" ? "slide-back" : "slide-forward");
+    }
+  });
+  dots.forEach((dot, i) => dot.classList.toggle("active", i < step));
+  backBtn.hidden = step === 1;
+  wizard.dataset.type = step === 1 ? "" : draft.type;
+
+  if (step === 1) {
+    wizardTitle.textContent = "Add Entry";
+  } else if (step === 2) {
+    wizardTitle.textContent = TYPE_LABEL[draft.type];
+    categoryHint.textContent = draft.type === "income" ? "Where did the money come from?" : "What did you spend on?";
+    renderCategoryCards();
+  } else {
+    wizardTitle.textContent = "Amount";
+    document.getElementById("chosen-icon").textContent = categoryIcon(draft.type, draft.category);
+    document.getElementById("chosen-type").textContent = TYPE_LABEL[draft.type];
+    document.getElementById("chosen-category").textContent = draft.category;
+    postBtn.textContent = "Post " + TYPE_LABEL[draft.type];
+    amountInput.focus();
+  }
+}
+
+function renderCategoryCards() {
+  categoryGrid.innerHTML = "";
+  for (const cat of CATEGORIES[draft.type]) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "category-card " + draft.type;
+    const icon = document.createElement("span");
+    icon.className = "category-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = cat.icon;
+    const name = document.createElement("span");
+    name.className = "category-name";
+    name.textContent = cat.name;
+    btn.append(icon, name);
+    btn.addEventListener("click", () => {
+      draft.category = cat.name;
+      goToStep(3);
+    });
+    categoryGrid.append(btn);
+  }
+}
+
+wizard.querySelectorAll(".step[data-step='1'] .type-card").forEach((card) => {
+  card.addEventListener("click", () => {
+    if (draft.type !== card.dataset.type) draft.category = null;
+    draft.type = card.dataset.type;
+    postedMsg.hidden = true;
+    goToStep(2);
+  });
+});
+
+backBtn.addEventListener("click", () => goToStep(draft.step - 1, "back"));
+document.getElementById("chosen").addEventListener("click", () => goToStep(2, "back"));
+
+amountForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const amount = parseAmount(amountInput.value);
+  if (!(amount > 0) || !draft.type || !draft.category) return;
+
+  postBtn.disabled = true;
   try {
     const created = await api("POST", "", {
-      type: form.elements.type.value,
-      description,
+      type: draft.type,
+      category: draft.category,
+      description: noteInput.value.trim(),
       amount,
       date: dateInput.value || today(),
     });
@@ -124,35 +250,71 @@ form.addEventListener("submit", async (event) => {
     showStatus("");
     render();
 
-    descriptionInput.value = "";
     amountInput.value = "";
+    noteInput.value = "";
     dateInput.value = today();
-    descriptionInput.focus();
+    draft.type = null;
+    draft.category = null;
+    goToStep(1, "back");
+    postedMsg.hidden = false;
+    clearTimeout(postedTimer);
+    postedTimer = setTimeout(() => (postedMsg.hidden = true), 2500);
   } catch (err) {
     showStatus(err.message);
   } finally {
-    submitBtn.disabled = false;
+    postBtn.disabled = false;
   }
 });
 
-// Edit sheet
+// ---------- Edit sheet ----------
+
 const editDialog = document.getElementById("edit-dialog");
 const editForm = document.getElementById("edit-form");
-const editDescription = document.getElementById("edit-description");
+const editCategories = document.getElementById("edit-categories");
 const editAmount = document.getElementById("edit-amount");
+const editNote = document.getElementById("edit-note");
 const editDate = document.getElementById("edit-date");
 const editSave = document.getElementById("edit-save");
 const editDelete = document.getElementById("edit-delete");
 let editingId = null;
+let editCategory = "";
+
+function renderEditCategories() {
+  const type = editForm.elements.type.value;
+  editCategories.innerHTML = "";
+  for (const cat of CATEGORIES[type]) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "category-card " + type;
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", String(cat.name === editCategory));
+    const icon = document.createElement("span");
+    icon.className = "category-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = cat.icon;
+    const name = document.createElement("span");
+    name.className = "category-name";
+    name.textContent = cat.name;
+    btn.append(icon, name);
+    btn.addEventListener("click", () => {
+      editCategory = cat.name;
+      renderEditCategories();
+    });
+    editCategories.append(btn);
+  }
+}
 
 function openEditor(entry) {
   editingId = entry.id;
   editForm.elements.type.value = entry.type;
-  editDescription.value = entry.description;
+  editCategory = entry.category;
+  // Older entries without a category keep their text as the note.
+  editNote.value = entry.description;
   editAmount.value = entry.amount;
   editDate.value = entry.date;
   editSave.disabled = false;
   editDelete.disabled = false;
+  renderEditCategories();
   editDialog.showModal();
 }
 
@@ -160,6 +322,13 @@ function closeEditor() {
   editingId = null;
   editDialog.close();
 }
+
+editForm.querySelectorAll("input[name=type]").forEach((radio) => {
+  radio.addEventListener("change", () => {
+    if (!CATEGORIES[radio.value].some((c) => c.name === editCategory)) editCategory = "";
+    renderEditCategories();
+  });
+});
 
 document.getElementById("edit-close").addEventListener("click", closeEditor);
 
@@ -170,15 +339,20 @@ editDialog.addEventListener("click", (event) => {
 
 editForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const amount = Math.round(parseFloat(editAmount.value) * 100) / 100;
-  const description = editDescription.value.trim();
-  if (!description || !(amount > 0) || editingId === null) return;
+  const amount = parseAmount(editAmount.value);
+  const note = editNote.value.trim();
+  if (!(amount > 0) || editingId === null) return;
+  if (!editCategory && !note) {
+    alert("Choose a category");
+    return;
+  }
 
   editSave.disabled = true;
   try {
     const updated = await api("PUT", "?id=" + encodeURIComponent(editingId), {
       type: editForm.elements.type.value,
-      description,
+      category: editCategory,
+      description: note,
       amount,
       date: editDate.value,
     });
@@ -196,7 +370,7 @@ editForm.addEventListener("submit", async (event) => {
 
 editDelete.addEventListener("click", async () => {
   const entry = entries.find((e) => e.id === editingId);
-  if (!entry || !confirm(`Delete "${entry.description}"?`)) return;
+  if (!entry || !confirm(`Delete "${entry.category || entry.description}"?`)) return;
 
   editDelete.disabled = true;
   try {
@@ -213,4 +387,5 @@ editDelete.addEventListener("click", async () => {
 });
 
 dateInput.value = today();
+goToStep(1);
 loadEntries();
