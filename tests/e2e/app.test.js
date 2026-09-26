@@ -83,6 +83,8 @@ test("R4: app opens straight to the balance with no password", { skip }, async (
   await page.waitForSelector("#app:not([hidden])");
   assert.equal(await page.locator("input[type=password]").count(), 0);
   assert.equal(await page.textContent("#balance"), "₹0.00");
+  // R1: no income / expense totals under the balance on the home page.
+  assert.equal(await page.locator("#screen-home .totals, #total-income, #total-expense").count(), 0);
 });
 
 test("R6/R7: adding an entry rides through type → category → amount cards", { skip }, async () => {

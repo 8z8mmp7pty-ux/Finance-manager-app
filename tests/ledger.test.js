@@ -600,3 +600,18 @@ test("R36: budgets for later months are prorated by days; salary due today leave
   const due = availableToSpend(entries, budgets, [{ ...plans[0], nextDate: "2026-09-26" }], "2026-09-26", []);
   assert.deepEqual([due.expected, due.available], [0, 30000]);
 });
+
+test("R37: a planned payment in a category with an Auto line adds to it (forecast and available to spend)", () => {
+  const today = "2026-09-26";
+  const entries = [income("2026-09-01", "Salary", 50000), { ...expense("2026-09-20", "Ntorq", 1400), subcategory: "Petrol" }];
+  const lines = autoPlans(entries, today); // petrol ₹1,400 over 27 Sep – 24 Oct
+  const service = { type: "expense", category: "Ntorq", amount: 1500, nextDate: "2026-10-05", repeat: "none" };
+  const salary = { type: "income", category: "Salary", amount: 50000, nextDate: "2026-11-01", repeat: "monthly", day: 1 };
+  const f = cashflowForecast(entries, [], [service], today, 2, lines);
+  assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, 1400 + 1500);
+  const a = availableToSpend(entries, [], [service, salary], today, lines);
+  assert.deepEqual(a.rows.map((r) => [r.category, r.expected]), [["Ntorq", 2900]]);
+  // A budget only counts when it is larger than planned + Auto.
+  const small = availableToSpend(entries, [{ category: "Ntorq", amount: 2000 }], [service, salary], today, lines);
+  assert.equal(small.rows[0].expected, 2900);
+});

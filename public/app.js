@@ -94,8 +94,6 @@ const statusEl = document.getElementById("status");
 const list = document.getElementById("entries");
 const emptyMsg = document.getElementById("empty");
 const balanceEl = document.getElementById("balance");
-const incomeEl = document.getElementById("total-income");
-const expenseEl = document.getElementById("total-expense");
 const reservesEl = document.getElementById("reserves");
 const accountsEl = document.getElementById("accounts");
 
@@ -329,12 +327,7 @@ function renderEntriesList() {
 function render() {
   renderEntriesList();
 
-  const income = entries.filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
-  const expense = entries.filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
-  const balance = income - expense;
-
-  incomeEl.textContent = currency.format(income);
-  expenseEl.textContent = currency.format(expense);
+  const balance = totalsOf(entries).net;
   balanceEl.textContent = currency.format(balance);
   balanceEl.className = "balance " + (balance < 0 ? "expense" : "");
   renderAccounts();

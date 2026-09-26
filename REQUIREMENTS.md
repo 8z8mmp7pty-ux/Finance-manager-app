@@ -16,7 +16,7 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 
 | ID  | Requirement | Verified by |
 | --- | ----------- | ----------- |
-| R1  | Record **income** and **expense** entries (amount, date, optional note) and show the **current balance** with total income and total expenses. Invalid entries are rejected. Amounts in Indian Rupees, formatted `en-IN` (₹1,00,000.00). | `tests/api.test.js` (R1), `tests/e2e/app.test.js` (R6, R8) |
+| R1  | Record **income** and **expense** entries (amount, date, optional note) and show the **current balance** (the home page no longer shows total income / total expenses under it; totals per period are on the Entries screen). Invalid entries are rejected. Amounts in Indian Rupees, formatted `en-IN` (₹1,00,000.00). | `tests/api.test.js` (R1), `tests/e2e/app.test.js` (R6, R8) |
 | R2  | Hosted on **Vercel**: static files in `public/`, serverless API in `api/`, no build step. | Deploy |
 | R3  | Data is stored in an **open-source database: PostgreSQL**. The table is created automatically, and upgrades never lose existing data (schema changes are additive migrations). Clear error messages when the database is not connected. | `tests/api.test.js` (R3), `tests/migration.test.js`, `tests/migration-previous.test.js` (budgets/plans tables are added alongside existing data) |
 | R4  | **No password / login.** The app opens straight to the balance. | `tests/api.test.js` (R4), `tests/e2e/app.test.js` (R4) |
@@ -51,6 +51,7 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 | R34 | The **Travel** expense card is removed. Automatic **Education** and **Entertainment** lines: average per month over the last 3 months, applied to the next 1 month (same behaviour as R32). | `tests/ledger.test.js` (R34), `tests/e2e/app.test.js` (R6/R7, R32/R33) |
 | R35 | Every automatic average **includes today** in the past period (e.g. last 30 days = today and the 29 days before; last 3 months = the day after the same date 3 months ago through today). Future-dated entries are not counted. The period planned ahead starts tomorrow, so today is never counted twice. | `tests/ledger.test.js` (R28, R31, R32, R35) |
 | R36 | The home page shows **Available to spend until next salary**, just under the current balance and a little smaller: current balance − what is expected from today to the day before the next salary. Per expense category the larger of its budget for those days (this month: the unspent part, spread over the rest of the month) and its planned payments + Auto lines. Other income before salary is not counted. Next salary = the planned Salary income (overdue = today), else a month after the last Salary entry, else 30 days. Tapping it opens a breakdown on the Budget screen. | `tests/ledger.test.js` (R36 ×3), `tests/e2e/app.test.js` (R36) |
+| R37 | A **planned payment** in an expense category that also has an **Auto** line is spent **on top of** the automatic amount: the expected amount for that category is **planned + Auto** (a budget counts only if it is larger than that sum). Applies to the forecast and to Available to spend. | `tests/ledger.test.js` (R31, R37) |
 | R16 | A **requirements guardian** keeps every requirement in this file working as new requests are made (see `CLAUDE.md` and `.claude/agents/requirements-guardian.md`; CI runs all tests on every push). | `.github/workflows/test.yml` |
 
 ## History
@@ -72,3 +73,4 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 - R34: Travel card removed (old Travel entries keep their name and ✈️ icon); automatic Education and Entertainment lines (3 months → next month).
 - R35: the owner asked that averages use today's date as part of the past period; this was already the behaviour and is now a requirement with its own test.
 - R36: available to spend until next salary on the home page, with a breakdown on the Budget screen. (Owner confirmed the forecast keeps adding Auto food lines on top of planned food payments.)
+- R1: income / expense totals removed from under the home balance at the owner's request. R37: owner confirmed planned payments add on top of Auto lines (the existing behaviour; now explicit and tested).
