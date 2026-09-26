@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
   budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
-  autoNtorqPlans, autoPlans, availableToSpend, forecastEnd } from "../public/ledger.js";
+  autoNtorqPlans, autoPlans, availableToSpend, forecastEnd, planDates } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -403,7 +403,7 @@ test("R28: the food amount is rounded once, and the forecast days add up to it",
   assert.equal(Math.round(f.rows.reduce((s, r) => s + r.expense, 0) * 100) / 100, 300.03);
 });
 
-test("R31: Ntorq petrol = weekly average of the last 4 weeks for the next 4 weeks; repair = monthly average of the last 3 months for the next month", () => {
+test("R31/R39: Ntorq petrol = weekly average of the last 4 weeks; repair = monthly average of the last 3 months; both over the 3-month forecast", () => {
   const ntorq = (date, sub, amount) => ({ ...expense(date, "Ntorq", amount), subcategory: sub });
   const entries = [
     ntorq("2026-09-26", "Petrol", 500), // today
@@ -421,7 +421,7 @@ test("R31: Ntorq petrol = weekly average of the last 4 weeks for the next 4 week
   );
   assert.deepEqual(
     [repair.subcategory, repair.rate, repair.unit, repair.amount, repair.from, repair.to],
-    ["Repair / Accessory", 1000, "month", 2934.78, "2026-09-27", "2026-12-25"] // ₹3,000 per 92 days × 90 days
+    ["Repair / Accessory", 978.26, "month", 2934.78, "2026-09-27", "2026-12-25"] // ₹3,000 per 92 days × 90 days
   );
   assert.deepEqual(autoPlans(entries, "2026-09-26").map((l) => l.subcategory || l.category), [
     "Mandatory Food", "Optional Food", "Petrol", "Repair / Accessory", "Transport", "Bills & Utilities",
@@ -459,7 +459,7 @@ test("R32/R39: Transport = weekly average over the last 3 months; Bills & Utilit
   const bills = lines.find((l) => l.category === "Bills & Utilities");
   assert.deepEqual(
     [bills.spent, bills.rate, bills.unit, bills.amount, bills.to, bills.horizon],
-    [4500, 1500, "month", 4402.17, "2026-12-25", "next 3 months"]
+    [4500, 1467.39, "month", 4402.17, "2026-12-25", "next 3 months"]
   );
 });
 
@@ -480,7 +480,7 @@ test("ordering is stable when some entries have no saved time", () => {
   assert.equal(new Set(orders).size, 1);
 });
 
-test("R34: Education and Entertainment = monthly average over the last 3 months for the next month", () => {
+test("R34/R39: Education and Entertainment = monthly average over the last 3 months, over the 3-month forecast", () => {
   const entries = [
     expense("2026-09-10", "Education", 3000),
     expense("2026-07-01", "Education", 1500),
@@ -490,8 +490,10 @@ test("R34: Education and Entertainment = monthly average over the last 3 months 
   const lines = autoPlans(entries, "2026-09-26");
   const education = lines.find((l) => l.category === "Education");
   const fun = lines.find((l) => l.category === "Entertainment");
-  assert.deepEqual([education.rate, education.amount, education.unit, education.horizon, education.basis], [1500, 4402.17, "month", "next 3 months", "last 3 months"]);
-  assert.deepEqual([fun.rate, fun.amount, fun.to], [200, 586.96, "2026-12-25"]);
+  assert.deepEqual([education.rate, education.amount, education.unit, education.horizon, education.basis], [1467.39, 4402.17, "month", "next 3 months", "last 3 months"]);
+  assert.deepEqual([fun.rate, fun.amount, fun.to], [195.65, 586.96, "2026-12-25"]);
+  // A per-month line shows its amount per forecast month, so 3 × rate ≈ amount (R39).
+  assert.ok(Math.abs(education.rate * 3 - education.amount) < 0.02);
 });
 
 test("R31: look-back windows at month ends, future entries ignored, auto lines + manual plan + budget", () => {
@@ -659,4 +661,35 @@ test("R39: every automatic line plans for the whole 3-month forecast, at its own
   const food = autoPlans(entries, "2026-09-26").filter((l) => l.category === "Mandatory Food");
   const f = cashflowForecast(entries, [], [], "2026-09-26", 3, food);
   assert.deepEqual(f.rows.map((r) => r.expense), [40, 310, 300, 250]);
+});
+
+test("R38: a monthly plan counts 3 times in the window, also at month ends", () => {
+  const rent = (nextDate, day) => ({ type: "expense", category: "Bills & Utilities", amount: 1000, nextDate, repeat: "monthly", day });
+  assert.deepEqual(planDates(rent("2027-01-31", 31), "2027-01-31"), ["2027-01-31", "2027-02-28", "2027-03-31"]);
+  assert.deepEqual(planDates(rent("2026-11-30", 30), "2026-11-30"), ["2026-11-30", "2026-12-30", "2027-01-30"]);
+  assert.deepEqual(planDates(rent("2026-12-28", 28), "2026-11-30"), ["2026-12-28", "2027-01-28", "2027-02-28"]);
+  assert.equal(availableToSpend([], [], [rent("2027-01-31", 31)], "2027-01-31").expected, 3000);
+  // Due exactly today: counted once today, then monthly.
+  assert.deepEqual(planDates(rent("2026-09-26", 26), "2026-09-26"), ["2026-09-26", "2026-10-26", "2026-11-26"]);
+});
+
+test("R38: an overdue expense plan counts once, as due today", () => {
+  const today = "2026-09-26";
+  const bill = { type: "expense", category: "Bills & Utilities", amount: 800, nextDate: "2026-07-10", repeat: "monthly", day: 10 };
+  assert.deepEqual(planDates(bill, today), [today, "2026-10-10", "2026-11-10", "2026-12-10"]);
+  assert.equal(availableToSpend([], [], [bill], today).expected, 3200);
+  const once = { ...bill, repeat: "once" };
+  assert.deepEqual(planDates(once, today), [today]);
+});
+
+test("R40: a repeating plan has one date per month in the 3-month forecast, the same dates the forecast counts", () => {
+  const today = "2026-09-26";
+  const salary = { type: "income", category: "Salary", amount: 50000, nextDate: "2026-10-01", repeat: "monthly", day: 1 };
+  const trip = { type: "expense", category: "Dress", amount: 2000, nextDate: "2026-10-15", repeat: "once", day: 15 };
+  const later = { type: "expense", category: "Dress", amount: 2000, nextDate: "2027-03-01", repeat: "monthly", day: 1 };
+  assert.deepEqual(planDates(salary, today), ["2026-10-01", "2026-11-01", "2026-12-01"]);
+  assert.deepEqual(planDates(trip, today), ["2026-10-15"]);
+  assert.deepEqual(planDates(later, today), []);
+  const f = cashflowForecast([], [], [salary, trip, later], today);
+  assert.equal(f.rows.reduce((s, r) => s + r.income, 0), 50000 * planDates(salary, today).length);
 });

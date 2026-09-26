@@ -494,7 +494,7 @@ export const AUTO_RULES = [
   { category: "Entertainment", back: { months: 3 }, unit: "month" },
 ];
 
-// "next 14 days", "next 4 weeks", "last 3 months": weeks only for a per-week line.
+// "last 30 days", "last 4 weeks", "last 3 months": weeks only for a per-week line.
 function periodText(span, prefix, unit) {
   if (span.months) return span.months === 1 ? `${prefix} month` : `${prefix} ${span.months} months`;
   if (unit === "week" && span.days % 7 === 0) return span.days === 7 ? `${prefix} week` : `${prefix} ${span.days / 7} weeks`;
@@ -509,10 +509,10 @@ function autoLineFor(rule, entries, today) {
   const to = forecastEnd(today);
   const spent = spentOn(entries, rule.category, rule.subcategory, since, today);
   const backDays = daysInclusive(since, today);
-  // The average shown per unit (day / week / month), and the amount for the days ahead at the
-  // same pace: spent × days ahead ÷ days looked back.
-  const unitsBack = rule.unit === "month" ? rule.back.months || backDays / 30 : backDays / (rule.unit === "week" ? 7 : 1);
-  const rate = spent / unitsBack;
+  // The amount for the days ahead at the same pace: spent × days ahead ÷ days looked back. The rate
+  // shown is per day / per week, or for a per-month line the amount per forecast month (so ×3 = amount).
+  const amount = (spent * daysInclusive(from, to)) / backDays;
+  const rate = rule.unit === "month" ? amount / FORECAST_MONTHS : (spent / backDays) * (rule.unit === "week" ? 7 : 1);
   return autoLine({
     category: rule.category,
     subcategory: rule.subcategory || "",
@@ -520,7 +520,7 @@ function autoLineFor(rule, entries, today) {
     since,
     from,
     to,
-    amount: (spent * daysInclusive(from, to)) / backDays,
+    amount,
     rate,
     unit: rule.unit,
     horizon: `next ${FORECAST_MONTHS} months`,
@@ -565,6 +565,15 @@ export function forecastEnd(today, months = FORECAST_MONTHS) {
   return Number(today.slice(8)) > Number(same.slice(8)) ? same : addDays(same, -1);
 }
 
+// The dates a plan falls on within the forecast, in order. A plan that is overdue (possibly for
+// several months) counts once, as due today; a monthly plan repeats on its day each month, at most
+// `months` times besides that (at a month end the window can reach a 4th day, e.g. 31 Jan → 30 Apr).
+export function planDates(plan, today, months = FORECAST_MONTHS) {
+  const until = addDays(forecastEnd(today, months), 1);
+  const dates = planOccurrences(plan, today, until).filter((d, i, all) => d !== today || all.indexOf(today) === i);
+  return plan.repeat === "monthly" ? dates.slice(0, months + (plan.nextDate < today ? 1 : 0)) : dates;
+}
+
 // Forecast from today to forecastEnd(today, months), one row per (part of a) calendar month.
 // Income: planned income. For each expense category, the larger of
 //   (a) its budget for the days of the row — this month: the unspent part spread over the rest of
@@ -587,8 +596,7 @@ export function cashflowForecast(entries, budgets, plans, today, months = FORECA
     day.set(category, (day.get(category) || 0) + amount);
   };
   for (const plan of plans) {
-    // A plan that is overdue (possibly for several months) counts once, as due today.
-    const dates = planOccurrences(plan, today, until).filter((d, i, all) => d !== today || all.indexOf(today) === i);
+    const dates = planDates(plan, today, months);
     for (const date of dates) {
       items.push({ plan, date });
       if (plan.type === "income") plannedIn.set(date, (plannedIn.get(date) || 0) + plan.amount);

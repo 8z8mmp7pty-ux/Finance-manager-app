@@ -585,3 +585,4 @@ li:last-child > button.report-row { border-bottom: none; }
 .plan-item:not(.auto-plan) { flex-wrap: wrap; }
 .plan-item:not(.auto-plan) > button.report-row { flex: 1 1 240px; }
 .plan-item:not(.auto-plan) .record-btn { margin: 0 0 8px auto; }
+.plan-repeat .entry-desc { color: var(--muted); }

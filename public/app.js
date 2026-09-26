@@ -19,6 +19,7 @@ import {
   availableToSpend,
   forecastEnd,
   FORECAST_MONTHS,
+  planDates,
   UNCATEGORISED,
   autoPlans as autoPlanLines,
   SUBCATEGORIES,
@@ -1633,25 +1634,39 @@ function renderBudget() {
     li.append(btn, el("span", "auto-badge", "Auto"));
     planList.append(li);
   }
-  const sorted = [...plans].sort((a, b) => a.nextDate.localeCompare(b.nextDate) || Number(a.id) - Number(b.id));
-  if (!sorted.length) planList.append(el("li", "empty", "Nothing else planned yet. Tap + Plan to add expected income or expenses."));
-  for (const plan of sorted) {
-    const li = el("li", "plan-item");
+  // One line per date in the 3-month forecast (a monthly plan shows each month); a plan with no
+  // date in the forecast shows once. Only a plan's next date can be recorded.
+  const lines = [];
+  for (const plan of plans) {
+    const dates = planDates(plan, today());
+    if (!dates.length) lines.push({ plan, date: plan.nextDate, first: true, beyond: true, n: 1, of: 1 });
+    dates.forEach((date, i) => lines.push({ plan, date, first: i === 0, n: i + 1, of: dates.length }));
+  }
+  lines.sort((a, b) => a.date.localeCompare(b.date) || Number(a.plan.id) - Number(b.plan.id));
+  if (!lines.length) planList.append(el("li", "empty", "Nothing else planned yet. Tap + Plan to add expected income or expenses."));
+  for (const line of lines) {
+    const { plan, date } = line;
+    const li = el("li", "plan-item" + (line.first ? "" : " plan-repeat"));
+    li.dataset.planId = plan.id;
     const btn = el("button", "report-row plan-row");
     btn.type = "button";
     const info = el("div", "entry-info");
-    const due = plan.nextDate <= today() ? "due " + (plan.nextDate < today() ? formatDate(plan.nextDate) : "today") : formatDate(plan.nextDate);
-    const beyond = plan.nextDate > forecastEnd(today()) ? "after the 3-month forecast" : "";
-    const meta = [due, plan.repeat === "monthly" ? "every month" : "one time", plan.description, beyond].filter(Boolean);
-    info.append(el("p", "entry-desc", plan.category), el("p", "entry-date" + (plan.nextDate <= today() ? " due" : ""), meta.join(" · ")));
+    const overdue = line.first && plan.nextDate < today();
+    const when = overdue ? "due " + formatDate(plan.nextDate) : date === today() ? "due today" : formatDate(date);
+    const repeat = plan.repeat === "monthly" ? (line.of > 1 ? `every month · ${line.n} of ${line.of}` : "every month") : "one time";
+    const meta = [when, repeat, plan.description, line.beyond ? "after the 3-month forecast" : ""].filter(Boolean);
+    info.append(el("p", "entry-desc", plan.category), el("p", "entry-date" + (line.first && date <= today() ? " due" : ""), meta.join(" · ")));
     const sign = plan.type === "income" ? "+" : "−";
     btn.append(el("span", "row-icon", categoryIcon(plan.type, plan.category)), info, el("span", "entry-amount " + plan.type, sign + currency.format(plan.amount)));
     btn.addEventListener("click", () => openPlan(plan));
-    const record = el("button", "record-btn", "✓ Record");
-    record.type = "button";
-    record.setAttribute("aria-label", `Record ${plan.category} ${currency.format(plan.amount)} as an entry`);
-    record.addEventListener("click", () => recordPlan(plan));
-    li.append(btn, record);
+    li.append(btn);
+    if (line.first) {
+      const record = el("button", "record-btn", "✓ Record");
+      record.type = "button";
+      record.setAttribute("aria-label", `Record ${plan.category} ${currency.format(plan.amount)} as an entry`);
+      record.addEventListener("click", () => recordPlan(plan));
+      li.append(record);
+    }
     planList.append(li);
   }
 

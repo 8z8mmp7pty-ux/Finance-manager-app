@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { skip, raw, TEST_DB } from "../helpers.js";
-import { autoPlans } from "../../public/ledger.js";
+import { autoPlans, planDates } from "../../public/ledger.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const PORT = 3210 + Math.floor(Math.random() * 500);
@@ -524,7 +524,7 @@ test("R25: a monthly budget per category shows spent against budget", { skip }, 
   assert.match(await page.textContent("#budget-summary"), /Spent ₹300\.00 of ₹5,000\.00/);
 });
 
-test("R26: planned cashflows feed the forecast and can be recorded as entries", { skip }, async () => {
+test("R26/R40: planned cashflows feed the forecast, repeat as one line per month, and can be recorded as entries", { skip }, async () => {
   const today = localToday();
   const nextMonth1st = (() => {
     const [y, m] = today.split("-").map(Number);
@@ -549,7 +549,24 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   await page.fill("#plan-note", "Service");
   await page.tap("#plan-save");
   await page.waitForFunction(() => !document.getElementById("plan-dialog").open);
-  assert.equal(await page.locator("#plan-list .plan-item:not(.auto-plan)").count(), 2);
+  // R40: the monthly salary shows one line per date in the 3-month forecast; the one-time plan once.
+  const salaryDates = planDates({ nextDate: nextMonth1st, repeat: "monthly", day: 1 }, today);
+  assert.ok(salaryDates.length >= 2);
+  assert.equal(await page.locator("#plan-list .plan-item:not(.auto-plan)").count(), salaryDates.length + 1);
+  const salaryLines = page.locator('#plan-list .plan-item:not(.auto-plan):has-text("Salary")');
+  assert.equal(await salaryLines.count(), salaryDates.length);
+  const metas = await salaryLines.locator(".entry-date").allTextContents();
+  metas.forEach((m, i) => assert.match(m, new RegExp(`every month · ${i + 1} of ${salaryDates.length}`), m));
+  assert.equal(await salaryLines.locator(".record-btn").count(), 1, "only the next date can be recorded");
+  assert.equal(await salaryLines.first().locator(".record-btn").count(), 1);
+  // All plan lines are in date order: the Ntorq plan due today comes first.
+  assert.match(await page.textContent("#plan-list .plan-item:not(.auto-plan)"), /Ntorq/);
+  // Tapping a later line edits the plan.
+  await salaryLines.nth(1).locator(".plan-row").tap();
+  await page.waitForSelector("#plan-dialog[open]");
+  assert.equal(await page.inputValue("#plan-amount"), "60000");
+  await page.tap("#plan-close");
+  await page.waitForFunction(() => !document.getElementById("plan-dialog").open);
 
   const rows = await page.$$eval("#forecast-table tr", (trs) => trs.map((tr) => [...tr.children].map((c) => c.innerText.trim())));
   // Header, today, then one row per (part of a) month to the same date 3 months ahead:
@@ -567,7 +584,7 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   // Record the Ntorq plan: it becomes an entry and the one-time plan goes away.
   const before = (await (await page.request.get(URL_ + "api/entries")).json()).length;
   await page.tap('#plan-list .plan-item:has-text("Ntorq") .record-btn');
-  await page.waitForFunction(() => document.querySelectorAll("#plan-list .plan-item:not(.auto-plan)").length === 1);
+  await page.waitForFunction((n) => document.querySelectorAll("#plan-list .plan-item:not(.auto-plan)").length === n, salaryDates.length);
   const after = await (await page.request.get(URL_ + "api/entries")).json();
   assert.equal(after.length, before + 1);
   const recorded = after.find((e) => e.description === "Service");
@@ -752,7 +769,7 @@ test("R31/R39: automatic Ntorq lines: petrol per week, repair per month, both fo
   assert.ok(petrolRow.includes("−" + inr(petrolLine.amount)), petrolRow);
   assert.match(petrolRow, /⛽/);
   const repairRow = await row("Ntorq · Repair / Accessory");
-  assert.ok(repairRow.includes(`next 3 months · ${inr(repair / 3)}/month (last 3 months' average)`), repairRow);
+  assert.ok(repairRow.includes(`next 3 months · ${inr(repairLine.amount / 3)}/month (last 3 months' average)`), repairRow);
   assert.ok(repairRow.includes("−" + inr(repairLine.amount)), repairRow);
   assert.match(repairRow, /🔧/);
 
