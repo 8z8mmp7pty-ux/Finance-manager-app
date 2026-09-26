@@ -995,6 +995,58 @@ test("R41: Add Entry is a popup from the + button; a tap outside closes it, or p
   assert.equal(await addOpen(), false);
   assert.equal(await count(), before + 1);
 
+  // Post, then a quick tap outside while it is saving: saved once.
+  await page.route("**/api/entries", async (route) => {
+    if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, 600));
+    await route.continue();
+  });
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "7");
+  await page.tap("#post-btn");
+  await outside();
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  await page.unroute("**/api/entries");
+  assert.equal(await count(), before + 2, "Post + tap outside saves it once");
+
+  // A drag from a field inside that ends outside is not a tap outside.
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "8");
+  const box = await page.locator("#note").boundingBox();
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(200, 20);
+  await page.mouse.up();
+  assert.ok(await addOpen(), "still open after a drag");
+  assert.equal(await count(), before + 2);
+
+  // A cancelled "only has …" confirm after a tap outside: nothing posted, the popup says why.
+  await page.tap("#add-close");
+  await closeAdd();
+  await page.tap('.account-card[aria-label^="Cash"]');
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("GPay")');
+  await settle();
+  await page.fill("#amount", "999999");
+  await page.evaluate(() => {
+    window.realConfirm = window.confirm;
+    window.confirm = () => false; // the owner taps Cancel
+  });
+  await outside();
+  await page.waitForFunction(() => !document.getElementById("add-status").hidden);
+  assert.match(await page.textContent("#add-status"), /Not posted/);
+  assert.ok(await addOpen());
+  assert.equal(await count(), before + 2);
+  await page.evaluate(() => (window.confirm = window.realConfirm));
+  await closeAdd();
+
   // Coming back to the app opens it again.
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   assert.ok(await addOpen(), "opens when the app is opened again");

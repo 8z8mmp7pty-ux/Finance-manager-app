@@ -126,9 +126,10 @@ async function api(method, query = "", body, path = "entries") {
 function showStatus(message, isError = true) {
   // While the Add Entry popup is open, its messages show inside it (the page behind is covered).
   const addStatus = document.getElementById("add-status");
-  const target = document.getElementById("add-dialog").open ? addStatus : statusEl;
-  for (const node of [statusEl, addStatus]) {
-    node.textContent = node === target ? message || "" : "";
+  const inPopup = document.getElementById("add-dialog").open;
+  // The popup's messages never wipe one shown on the page behind it.
+  for (const node of inPopup ? [addStatus] : [statusEl, addStatus]) {
+    node.textContent = node === (inPopup ? addStatus : statusEl) ? message || "" : "";
     node.classList.toggle("info", !isError);
     node.hidden = !node.textContent;
   }
@@ -538,6 +539,7 @@ const EMPTY_DRAFT = {
 };
 const draft = { ...EMPTY_DRAFT };
 let postedTimer;
+let addOpenedOn = null; // the day the Add Entry popup was last opened fresh
 
 function goToStage(stage, direction = "forward") {
   const stages = draft.flow ? flowStages() : ["type", "category", "amount"];
@@ -782,25 +784,36 @@ addDialog.addEventListener("close", () => {
 });
 
 // A tap outside the popup closes it, or posts the entry first if one is ready (the popup stays
-// open if posting fails or is cancelled, so the message can be seen).
-let postingFromOutside = false;
-addDialog.addEventListener("click", async (event) => {
-  if (event.target !== addDialog) return;
+// open if posting fails or is cancelled, so the message can be seen). Only a tap that also started
+// outside counts: a drag from a field inside that ends outside does nothing.
+function outsideAdd(event) {
   const r = addDialog.getBoundingClientRect();
-  const inside = event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
-  if (inside || postingFromOutside) return;
+  return !(event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom);
+}
+let pressedOutside = false;
+addDialog.addEventListener("pointerdown", (event) => {
+  pressedOutside = event.target === addDialog && outsideAdd(event);
+});
+addDialog.addEventListener("click", async (event) => {
+  const outside = event.target === addDialog && outsideAdd(event) && pressedOutside;
+  pressedOutside = false;
+  if (!outside || postBtn.disabled) return; // postBtn is disabled while a post is on its way
   if (!entryReady()) return closeAdd();
-  postingFromOutside = true;
-  try {
-    await postDraft();
-  } finally {
-    postingFromOutside = false;
+  if (!(await postDraft()) && addDialog.open && document.getElementById("add-status").hidden) {
+    showStatus("Not posted. Tap Post to try again, or ✕ to discard it.");
   }
 });
 
-// Opening the app again (coming back to it) also opens the popup, unless a sheet is already open.
+// Opening the app again (coming back to it) also opens the popup, unless a sheet is already open
+// or a field on the page is being typed in. A popup left open since an earlier day moves to today.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !appSection.hidden && !document.querySelector("dialog[open]")) openAdd();
+  if (document.visibilityState !== "visible" || appSection.hidden) return;
+  if (addDialog.open) {
+    if (dateInput.value === addOpenedOn && addOpenedOn !== today()) dateInput.value = addOpenedOn = today();
+    return;
+  }
+  const typing = document.activeElement?.matches?.("input, select, textarea");
+  if (!document.querySelector("dialog[open]") && !typing) openAdd();
 });
 
 // Reopening from a home-screen shortcut after closing the browser can bring the page back from the
@@ -812,7 +825,7 @@ window.addEventListener("pageshow", (event) => {
 function resetWizard() {
   amountInput.value = "";
   noteInput.value = "";
-  dateInput.value = today();
+  dateInput.value = addOpenedOn = today();
   Object.assign(draft, EMPTY_DRAFT);
   goToStage("type", "back");
 }
@@ -860,6 +873,7 @@ amountForm.addEventListener("submit", (event) => {
 
 // Posts the entry being added. True when it was saved (the popup then closes).
 async function postDraft() {
+  if (postBtn.disabled) return false; // a post is already on its way (Post, then a tap outside)
   const amount = parseAmount(amountInput.value);
   if (!(amount > 0) || !draft.flow) return false;
 
