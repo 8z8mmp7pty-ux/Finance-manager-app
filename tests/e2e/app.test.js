@@ -182,7 +182,7 @@ test("R9: an income's reserve can be changed in the editor", { skip }, async () 
 test("R17/R18: payments default to Super Money; another account can be chosen", { skip }, async () => {
   await page.tap(".type-card[data-flow=expense]");
   await settle();
-  await page.tap('#pick-grid .category-card:has-text("Groceries")');
+  await page.tap('#pick-grid .category-card:has-text("Mandatory Food")');
   await settle();
   assert.equal(await page.textContent("#account-label"), "Paid from account");
   assert.equal(
@@ -366,7 +366,7 @@ test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Re
   await settle();
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
   assert.deepEqual(names, [
-    "Food & Dining", "Groceries", "Ntorq", "Bills & Utilities", "Transport", "Shopping",
+    "Mandatory Food", "Optional Food", "Ntorq", "Bills & Utilities", "Transport", "Shopping",
     "Health", "Education", "Entertainment", "Travel", "For Mom, Dad, Muthu", "Other",
   ]);
   await page.tap('#pick-grid .category-card:has-text("For Mom, Dad, Muthu")');
@@ -501,11 +501,11 @@ test("R25: a monthly budget per category shows spent against budget", { skip }, 
   await page.waitForSelector("#screen-budget:not([hidden])");
   await page.tap("#budget-add");
   await page.waitForSelector("#budget-dialog[open]");
-  await page.tap('#budget-categories .category-card:has-text("Groceries")');
+  await page.tap('#budget-categories .category-card:has-text("Mandatory Food")');
   await page.fill("#budget-amount", "5000");
   await page.tap("#budget-save");
   await page.waitForFunction(() => !document.getElementById("budget-dialog").open);
-  const row = (await page.textContent('#budget-list .budget-row:has-text("Groceries")')).replace(/\s+/g, " ");
+  const row = (await page.textContent('#budget-list .budget-row:has-text("Mandatory Food")')).replace(/\s+/g, " ");
   assert.match(row, /₹300\.00 of ₹5,000\.00/);
   assert.match(row, /₹4,700\.00 left/);
   assert.match(await page.textContent("#budget-summary"), /Spent ₹300\.00 of ₹5,000\.00/);
@@ -536,18 +536,18 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   await page.fill("#plan-note", "Service");
   await page.tap("#plan-save");
   await page.waitForFunction(() => !document.getElementById("plan-dialog").open);
-  assert.equal(await page.locator("#plan-list .plan-item").count(), 2);
+  assert.equal(await page.locator("#plan-list .plan-item:not(.auto-plan)").count(), 2);
 
   const rows = await page.$$eval("#forecast-table tr", (trs) => trs.map((tr) => [...tr.children].map((c) => c.innerText.trim())));
   assert.equal(rows.length, 1 + 1 + 6, "header, today, 6 months");
   const next = rows[3];
   assert.equal(next[1], "+₹60,000");
-  assert.equal(next[2], "−₹5,000", "Groceries budget");
+  assert.equal(next[2], "−₹5,000", "Mandatory Food budget (more than its auto plan)");
 
   // Record the Ntorq plan: it becomes an entry and the one-time plan goes away.
   const before = (await (await page.request.get(URL_ + "api/entries")).json()).length;
   await page.tap('#plan-list .plan-item:has-text("Ntorq") .record-btn');
-  await page.waitForFunction(() => document.querySelectorAll("#plan-list .plan-item").length === 1);
+  await page.waitForFunction(() => document.querySelectorAll("#plan-list .plan-item:not(.auto-plan)").length === 1);
   const after = await (await page.request.get(URL_ + "api/entries")).json();
   assert.equal(after.length, before + 1);
   const recorded = after.find((e) => e.description === "Service");
@@ -597,5 +597,22 @@ test("R23: an old expense without a category opens from the spending report", { 
   assert.equal(await page.inputValue("#f-category"), "Uncategorised");
   await page.tap("#f-clear-quick"); // visible even with More filters closed
   assert.ok(await page.isHidden("#f-clear-quick"));
+  await screen("");
+});
+
+test("R28: the Planned section shows automatic 14-day food lines from the last 30 days", { skip }, async () => {
+  await screen("budget");
+  const autos = await page.$$eval("#plan-list .auto-plan", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
+  assert.equal(autos.length, 2);
+  // Mandatory Food: ₹300 spent today (R17/R18) → ₹10/day → ₹140 for 14 days. Optional Food: nothing yet.
+  assert.match(autos[0], /Mandatory Food.*next 14 days · ₹10\.00\/day.*−₹140\.00.*Auto/);
+  assert.match(autos[1], /Optional Food.*₹0\.00\/day.*−₹0\.00/);
+  assert.equal(await page.locator("#plan-list .auto-plan .record-btn").count(), 0, "auto lines are not recorded");
+
+  await page.tap('#plan-list .auto-plan:has-text("Mandatory Food") .plan-row');
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  const shown = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.ok(shown.length >= 1 && shown.every((t) => t.includes("Mandatory Food")));
+  await page.tap("#f-clear-quick");
   await screen("");
 });

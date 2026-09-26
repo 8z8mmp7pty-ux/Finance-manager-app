@@ -8,6 +8,9 @@
 export const GENERAL = "General Reserve";
 // Spending-report group (and entries filter value) for old expenses saved without a category.
 export const UNCATEGORISED = "Uncategorised";
+export const MANDATORY_FOOD = "Mandatory Food";
+export const OPTIONAL_FOOD = "Optional Food";
+export const FOOD_TYPES = [MANDATORY_FOOD, OPTIONAL_FOOD];
 export const DEFAULT_ACCOUNT = "Super Money";
 export const ACCOUNTS = ["Super Money", "GPay", "Cash"];
 
@@ -412,9 +415,31 @@ export function planOccurrences(plan, today, until) {
   return dates;
 }
 
+function addDays(date, days) {
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Automatic food plans: for each food type, its average spending per day over the last 30 days
+// (today included), planned for each of the next 14 days (tomorrow onwards).
+export function autoFoodPlans(entries, today, { pastDays = 30, nextDays = 14 } = {}) {
+  const since = addDays(today, -(pastDays - 1));
+  return FOOD_TYPES.map((category) => {
+    const spent = entries
+      .filter((e) => e.type === "expense" && e.category === category && e.date >= since && e.date <= today)
+      .reduce((s, e) => s + e.amount, 0);
+    const perDay = round(spent / pastDays);
+    const from = addDays(today, 1);
+    const to = addDays(today, nextDays);
+    return { auto: true, type: "expense", category, perDay, amount: round(perDay * nextDays), from, to, pastDays, nextDays, spent: round(spent) };
+  });
+}
+
 // Month-by-month forecast from the current balance: planned income in, and for each expense
 // category the larger of its budget and what is planned for it (this month: the budget left).
-export function cashflowForecast(entries, budgets, plans, today, months = 6) {
+// Automatic food plans count day by day, so days that fall in next month count there.
+export function cashflowForecast(entries, budgets, plans, today, months = 6, autoPlans = []) {
   const first = monthOf(today);
   const until = addMonths(monthStart(first), months);
   const spentThisMonth = new Map(spendingByCategory(entries, { period: "this-month" }, today).rows.map((r) => [r.category, r.amount]));
@@ -429,6 +454,16 @@ export function cashflowForecast(entries, budgets, plans, today, months = 6) {
       bucket.items.push({ plan, date });
       if (plan.type === "income") bucket.income = round(bucket.income + plan.amount);
       else bucket.expense.set(plan.category, round((bucket.expense.get(plan.category) || 0) + plan.amount));
+    }
+  }
+
+  for (const auto of autoPlans) {
+    if (!(auto.perDay > 0)) continue;
+    for (let date = auto.from; date <= auto.to && date < until; date = addDays(date, 1)) {
+      const m = monthOf(date);
+      if (!planned.has(m)) planned.set(m, { income: 0, expense: new Map(), items: [] });
+      const bucket = planned.get(m);
+      bucket.expense.set(auto.category, round((bucket.expense.get(auto.category) || 0) + auto.perDay));
     }
   }
 

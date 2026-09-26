@@ -550,3 +550,4 @@ li:last-child > button.report-row { border-bottom: none; }
 .toggle.plain:has(input:checked) { border-color: var(--accent); background: var(--transfer-bg); }
 .forecast-start th, .forecast-start td { color: var(--muted); }
 #plan-form .field-label { margin-bottom: -6px; }
+.auto-badge { flex-shrink: 0; padding: 4px 10px; border-radius: 999px; background: var(--transfer-bg); color: var(--transfer); font-size: 0.75rem; font-weight: 700; }

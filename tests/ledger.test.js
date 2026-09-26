@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
-  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED } from "../public/ledger.js";
+  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -336,4 +336,31 @@ test("R26: a monthly plan keeps its day of the month (31st stays the 31st after 
   assert.deepEqual(planOccurrences(plan, "2027-01-01", "2027-05-01"), ["2027-01-31", "2027-02-28", "2027-03-31", "2027-04-30"]);
   // Recording moves it on from wherever it is now, aiming at its day.
   assert.equal(addMonths(addMonths("2027-01-31", 1, 31), 1, 31), "2027-03-31");
+});
+
+test("R28: automatic food plans use each food type's last-30-day average per day for the next 14 days", () => {
+  const entries = [
+    expense("2026-09-26", "Mandatory Food", 300), // today
+    expense("2026-08-28", "Mandatory Food", 600), // 30th day back: included
+    expense("2026-08-27", "Mandatory Food", 999), // 31 days back: not included
+    expense("2026-09-10", "Optional Food", 450),
+    expense("2026-09-10", "Groceries", 5000), // not a food type any more
+  ];
+  const [mandatory, optional] = autoFoodPlans(entries, "2026-09-26");
+  assert.deepEqual(
+    [mandatory.category, mandatory.perDay, mandatory.amount, mandatory.from, mandatory.to],
+    ["Mandatory Food", 30, 420, "2026-09-27", "2026-10-10"]
+  );
+  assert.deepEqual([optional.category, optional.perDay, optional.amount], ["Optional Food", 15, 210]);
+});
+
+test("R28: the forecast counts automatic food plans day by day, split across months", () => {
+  const entries = [income("2026-09-01", "Salary", 10000), expense("2026-09-20", "Mandatory Food", 3000)]; // 100/day
+  const auto = autoFoodPlans(entries, "2026-09-26");
+  const f = cashflowForecast(entries, [], [], "2026-09-26", 2, auto);
+  // 27–30 Sep = 4 days in September, 1–10 Oct = 10 days in October.
+  assert.deepEqual([f.rows[0].expense, f.rows[1].expense], [400, 1000]);
+  // With a budget, the larger of budget and planned counts.
+  const withBudget = cashflowForecast(entries, [{ category: "Mandatory Food", amount: 5000 }], [], "2026-09-26", 2, auto);
+  assert.deepEqual([withBudget.rows[0].expense, withBudget.rows[1].expense], [2000, 5000]);
 });

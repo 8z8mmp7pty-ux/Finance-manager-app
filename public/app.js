@@ -17,6 +17,7 @@ import {
   budgetStatus,
   cashflowForecast,
   UNCATEGORISED,
+  autoFoodPlans,
 } from "./ledger.js";
 
 const CATEGORIES = {
@@ -32,8 +33,8 @@ const CATEGORIES = {
     { name: "Other", icon: "➕" },
   ],
   expense: [
-    { name: "Food & Dining", icon: "🍽️" },
-    { name: "Groceries", icon: "🛒" },
+    { name: "Mandatory Food", icon: "🍛" },
+    { name: "Optional Food", icon: "🍕" },
     { name: "Ntorq", icon: "🛵" },
     { name: "Bills & Utilities", icon: "💡" },
     { name: "Transport", icon: "🚗" },
@@ -50,7 +51,7 @@ const CATEGORIES = {
 const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra" };
 
 // Icons for categories that were replaced, so entries saved with them keep their look.
-const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳" };
+const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳", "Food & Dining": "🍽️", Groceries: "🛒" };
 
 function categoryIcon(type, name) {
   const found = (CATEGORIES[type] || []).find((c) => c.name === name);
@@ -1477,10 +1478,26 @@ function renderBudget() {
     budgetList.append(li);
   }
 
-  // Planned cashflows.
+  // Planned cashflows: the automatic food lines first, then the plans you added.
   planList.innerHTML = "";
+  const autoPlans = autoFoodPlans(entries, today());
+  for (const auto of autoPlans) {
+    const li = el("li", "plan-item auto-plan");
+    const btn = el("button", "report-row plan-row");
+    btn.type = "button";
+    btn.setAttribute("aria-label", `${auto.category}: automatic plan for the next ${auto.nextDays} days. Tap to see the last ${auto.pastDays} days`);
+    const info = el("div", "entry-info");
+    const meta = `next ${auto.nextDays} days · ${currency.format(auto.perDay)}/day (last ${auto.pastDays} days' average)`;
+    info.append(el("p", "entry-desc", auto.category), el("p", "entry-date", meta));
+    btn.append(el("span", "row-icon", categoryIcon("expense", auto.category)), info, el("span", "entry-amount expense", "−" + currency.format(auto.amount)));
+    btn.addEventListener("click", () =>
+      showEntries({ type: "expense", category: auto.category, from: autoPlanSince(auto) })
+    );
+    li.append(btn, el("span", "auto-badge", "Auto"));
+    planList.append(li);
+  }
   const sorted = [...plans].sort((a, b) => a.nextDate.localeCompare(b.nextDate) || Number(a.id) - Number(b.id));
-  if (!sorted.length) planList.append(el("li", "empty", "Nothing planned yet. Tap + Plan to add expected income or expenses."));
+  if (!sorted.length) planList.append(el("li", "empty", "Nothing else planned yet. Tap + Plan to add expected income or expenses."));
   for (const plan of sorted) {
     const li = el("li", "plan-item");
     const btn = el("button", "report-row plan-row");
@@ -1501,7 +1518,7 @@ function renderBudget() {
   }
 
   // Forecast.
-  const forecast = cashflowForecast(entries, budgets, plans, today(), 6);
+  const forecast = cashflowForecast(entries, budgets, plans, today(), 6, autoPlans);
   forecastTable.innerHTML = "";
   const head = el("tr");
   for (const h of ["Month", "In", "Out", "Balance"]) head.append(el("th", h === "Month" ? "grid-corner" : "", h));
@@ -1523,6 +1540,13 @@ function renderBudget() {
     tbody.append(tr);
   }
   forecastTable.append(thead, tbody);
+}
+
+// First day of the period an automatic plan averages over.
+function autoPlanSince(auto) {
+  const d = new Date(today() + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - (auto.pastDays - 1));
+  return d.toISOString().slice(0, 10);
 }
 
 // Budget sheet

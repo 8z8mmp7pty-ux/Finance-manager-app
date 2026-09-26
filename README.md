@@ -3,7 +3,7 @@
 A simple personal finance manager: record income and expense entries and see your current balance.
 Entries are stored in a **PostgreSQL** database (open source), so they are available on every device.
 
-- Add entries step by step with tap cards: Income or Expense → category (Salary, Groceries, Ntorq…) → amount → Post
+- Add entries step by step with tap cards: Income or Expense → category (Salary, Mandatory Food, Ntorq…) → amount → Post
 - See total income, total expenses and current balance
 - Reserves (buckets): every income type pours into its own reserve (e.g. Salary Reserve),
   plus a General Reserve. Expenses are paid from General Reserve by default, or from any reserve you pick.
@@ -11,7 +11,7 @@ Entries are stored in a **PostgreSQL** database (open source), so they are avail
 - Accounts (Super Money, GPay, Cash) and contra entries between them
 - **Entries** screen with quick filters and more filters; tap a card to edit or delete it
 - **Reports**: spending by category, reserve utilisation (each receipt, used and left), a month's money, reserves × accounts
-- **Budget & Plans**: monthly budgets per category, planned future cashflows and a 6-month forecast
+- **Budget & Plans**: monthly budgets per category, planned future cashflows (plus automatic 14-day Mandatory / Optional Food lines from the last 30 days) and a 6-month forecast
 
 ## Project structure
 
@@ -40,7 +40,7 @@ dev-server.js    Local development server
    (Or use any other PostgreSQL, e.g. Supabase, and set `DATABASE_URL` yourself.)
 4. Go to **Deployments** → **⋯** on the latest deployment → **Redeploy** so it picks up the database.
 
-The tables (`entries`, `budgets`, `plans`) are created automatically on the first request.
+The tables (`entries`, `budgets`, `plans`) are created and upgraded automatically on the first request (see `SCHEMA_SQL` in `lib/db.js`).
 
 ## Run locally
 
