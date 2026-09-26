@@ -11,7 +11,7 @@ Entries are stored in a **PostgreSQL** database (open source), so they are avail
 - Accounts (Super Money, GPay, Cash) and contra entries between them
 - **Entries** screen with quick filters and more filters; tap a card to edit or delete it
 - **Reports**: spending by category, reserve utilisation (each receipt, used and left), a month's money, reserves × accounts
-- **Budget & Plans**: monthly budgets per category, planned future cashflows (plus automatic 14-day Mandatory / Optional Food lines from the last 30 days) and a 6-month forecast
+- **Budget & Plans**: monthly budgets per category, planned future cashflows (plus automatic lines from recent averages: food, Ntorq, transport, bills, education, entertainment) and a 3-month forecast; available to spend on the home page
 
 ## Project structure
 

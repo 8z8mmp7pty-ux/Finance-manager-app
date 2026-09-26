@@ -481,17 +481,17 @@ function autoLine({ category, subcategory = "", spent, since, from, to, amount, 
   };
 }
 
-// The automatic plans: look back over `back`, average per `unit`, plan for `ahead` (from tomorrow).
-// `back` / `ahead` are { days } or { months }. `subcategory` limits a line to one type (Ntorq).
+// The automatic plans: look back over `back` ({ days } or { months }), average per `unit`, and plan
+// for the whole forecast (tomorrow → forecastEnd). `subcategory` limits a line to one type (Ntorq).
 export const AUTO_RULES = [
-  { category: MANDATORY_FOOD, back: { days: 30 }, unit: "day", ahead: { days: 14 } },
-  { category: OPTIONAL_FOOD, back: { days: 30 }, unit: "day", ahead: { days: 14 } },
-  { category: "Ntorq", subcategory: "Petrol", back: { days: 28 }, unit: "week", ahead: { days: 28 } },
-  { category: "Ntorq", subcategory: "Repair / Accessory", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
-  { category: "Transport", back: { months: 3 }, unit: "week", ahead: { days: 21 } },
-  { category: "Bills & Utilities", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
-  { category: "Education", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
-  { category: "Entertainment", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
+  { category: MANDATORY_FOOD, back: { days: 30 }, unit: "day" },
+  { category: OPTIONAL_FOOD, back: { days: 30 }, unit: "day" },
+  { category: "Ntorq", subcategory: "Petrol", back: { days: 28 }, unit: "week" },
+  { category: "Ntorq", subcategory: "Repair / Accessory", back: { months: 3 }, unit: "month" },
+  { category: "Transport", back: { months: 3 }, unit: "week" },
+  { category: "Bills & Utilities", back: { months: 3 }, unit: "month" },
+  { category: "Education", back: { months: 3 }, unit: "month" },
+  { category: "Entertainment", back: { months: 3 }, unit: "month" },
 ];
 
 // "next 14 days", "next 4 weeks", "last 3 months": weeks only for a per-week line.
@@ -504,13 +504,14 @@ function periodText(span, prefix, unit) {
 function autoLineFor(rule, entries, today) {
   // Look-back window, today included: N days, or from the day after the same date N months ago.
   const since = rule.back.months ? addDays(addMonths(today, -rule.back.months), 1) : addDays(today, -(rule.back.days - 1));
+  // Planned for the whole forecast: tomorrow to its last day (today is already in the balance).
   const from = addDays(today, 1);
-  const to = rule.ahead.months ? addMonths(today, rule.ahead.months) : addDays(today, rule.ahead.days);
+  const to = forecastEnd(today);
   const spent = spentOn(entries, rule.category, rule.subcategory, since, today);
   const backDays = daysInclusive(since, today);
-  // How many units the look-back covers, and how many are planned ahead.
+  // The average shown per unit (day / week / month), and the amount for the days ahead at the
+  // same pace: spent × days ahead ÷ days looked back.
   const unitsBack = rule.unit === "month" ? rule.back.months || backDays / 30 : backDays / (rule.unit === "week" ? 7 : 1);
-  const unitsAhead = rule.unit === "month" ? rule.ahead.months || daysInclusive(from, to) / 30 : daysInclusive(from, to) / (rule.unit === "week" ? 7 : 1);
   const rate = spent / unitsBack;
   return autoLine({
     category: rule.category,
@@ -519,10 +520,10 @@ function autoLineFor(rule, entries, today) {
     since,
     from,
     to,
-    amount: rate * unitsAhead,
+    amount: (spent * daysInclusive(from, to)) / backDays,
     rate,
     unit: rule.unit,
-    horizon: periodText(rule.ahead, "next", rule.unit),
+    horizon: `next ${FORECAST_MONTHS} months`,
     basis: periodText(rule.back, "last", rule.unit),
   });
 }
@@ -532,15 +533,15 @@ export function autoPlans(entries, today) {
   return AUTO_RULES.map((rule) => autoLineFor(rule, entries, today));
 }
 
-// Automatic food plans: each food type's average per day over the last 30 days, for the next 14 days.
+// Automatic food plans: each food type's average per day over the last 30 days, for the forecast.
 export function autoFoodPlans(entries, today) {
   return autoPlans(entries, today)
     .filter((l) => FOOD_TYPES.includes(l.category))
-    .map((l) => ({ ...l, perDay: l.rate, pastDays: 30, nextDays: 14 }));
+    .map((l) => ({ ...l, perDay: l.rate, pastDays: 30, nextDays: l.days }));
 }
 
-// Automatic Ntorq plans: petrol per week over the last 4 weeks for the next 4 weeks; repair /
-// accessory per month over the last 3 months for the next month.
+// Automatic Ntorq plans: petrol per week over the last 4 weeks; repair / accessory per month over
+// the last 3 months; both for the forecast.
 export function autoNtorqPlans(entries, today) {
   return autoPlans(entries, today).filter((l) => l.category === "Ntorq");
 }

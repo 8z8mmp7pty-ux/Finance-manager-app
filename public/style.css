@@ -581,3 +581,7 @@ li:last-child > button.report-row { border-bottom: none; }
 .nowrap { white-space: nowrap; }
 .plan-row .entry-info { min-width: 90px; }
 .plan-row .entry-amount { flex-shrink: 0; }
+/* A plan row with a Record button: the button moves under the amount when the row is too narrow. */
+.plan-item:not(.auto-plan) { flex-wrap: wrap; }
+.plan-item:not(.auto-plan) > button.report-row { flex: 1 1 240px; }
+.plan-item:not(.auto-plan) .record-btn { margin: 0 0 8px auto; }

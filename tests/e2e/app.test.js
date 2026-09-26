@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { skip, raw, TEST_DB } from "../helpers.js";
+import { autoPlans } from "../../public/ledger.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const PORT = 3210 + Math.floor(Math.random() * 500);
@@ -619,12 +620,15 @@ test("R23: an old expense without a category opens from the spending report", { 
   await screen("");
 });
 
-test("R28: the Planned section shows automatic 14-day food lines from the last 30 days", { skip }, async () => {
+test("R28/R39: the Planned section shows automatic food lines (last 30 days → next 3 months)", { skip }, async () => {
   await screen("budget");
   const autos = await page.$$eval("#plan-list .auto-plan", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
   assert.equal(autos.length, 8, "food ×2, Ntorq petrol and repair, Transport, Bills & Utilities, Education, Entertainment");
-  // Mandatory Food: ₹300 spent today (R17/R18) → ₹10/day → ₹140 for 14 days. Optional Food: nothing yet.
-  assert.match(autos[0], /Mandatory Food.*next 14 days · ₹10\.00\/day.*−₹140\.00.*Auto/);
+  // Mandatory Food: ₹300 spent today (R17/R18) → ₹10/day, for every day of the 3-month forecast.
+  const days = autoPlans([], localToday())[0].days;
+  const expected = "−₹" + (10 * days).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+  assert.match(autos[0], /Mandatory Food.*next 3 months · ₹10\.00\/day/);
+  assert.ok(autos[0].includes(expected) && autos[0].includes("Auto"), autos[0]);
   assert.match(autos[1], /Optional Food.*₹0\.00\/day.*−₹0\.00/);
   assert.equal(await page.locator("#plan-list .auto-plan .record-btn").count(), 0, "auto lines are not recorded");
 
@@ -710,7 +714,7 @@ test("R30: the spending report switches between Ntorq as one line and one line p
   await screen("");
 });
 
-test("R31: automatic Ntorq lines: petrol for the next 4 weeks, repair for the next month", { skip }, async () => {
+test("R31/R39: automatic Ntorq lines: petrol per week, repair per month, both for the next 3 months", { skip }, async () => {
   const today = localToday();
   const shift = (days) => {
     const d = new Date(today + "T00:00:00Z");
@@ -738,14 +742,18 @@ test("R31: automatic Ntorq lines: petrol for the next 4 weeks, repair for the ne
   const repair = sum("Repair / Accessory", threeMonthsAgo.toISOString().slice(0, 10));
 
   const row = async (label) => (await page.textContent(`#plan-list .auto-plan:has-text("${label}")`)).replace(/\s+/g, " ");
+  const lines = autoPlans(entries, today);
+  const petrolLine = lines.find((l) => l.subcategory === "Petrol");
+  const repairLine = lines.find((l) => l.subcategory === "Repair / Accessory");
+  assert.equal(petrolLine.spent, Math.round(petrol * 100) / 100);
+  assert.equal(repairLine.spent, Math.round(repair * 100) / 100);
   const petrolRow = await row("Ntorq · Petrol");
-  assert.match(petrolRow, /next 4 weeks/);
-  assert.ok(petrolRow.includes(`${inr(petrol / 4)}/week (last 4 weeks' average)`), petrolRow);
-  assert.ok(petrolRow.includes("−" + inr(petrol)), petrolRow);
+  assert.ok(petrolRow.includes(`next 3 months · ${inr(petrol / 4)}/week (last 4 weeks' average)`), petrolRow);
+  assert.ok(petrolRow.includes("−" + inr(petrolLine.amount)), petrolRow);
   assert.match(petrolRow, /⛽/);
   const repairRow = await row("Ntorq · Repair / Accessory");
-  assert.ok(repairRow.includes(`next month · ${inr(repair / 3)}/month (last 3 months' average)`), repairRow);
-  assert.ok(repairRow.includes("−" + inr(repair / 3)), repairRow);
+  assert.ok(repairRow.includes(`next 3 months · ${inr(repair / 3)}/month (last 3 months' average)`), repairRow);
+  assert.ok(repairRow.includes("−" + inr(repairLine.amount)), repairRow);
   assert.match(repairRow, /🔧/);
 
   // Tapping a line shows the entries it averages.
@@ -771,9 +779,9 @@ test("R32/R33: Dress replaces Shopping; automatic Transport (3 weeks) and Bills 
   await screen("budget");
   const row = async (label) => (await page.textContent(`#plan-list .auto-plan:has-text("${label}")`)).replace(/\s+/g, " ");
   const transport = await row("Transport");
-  assert.match(transport, /next 3 weeks · ₹[\d,.]+\/week \(last 3 months' average\)/);
+  assert.match(transport, /next 3 months · ₹[\d,.]+\/week \(last 3 months' average\)/);
   for (const label of ["Bills & Utilities", "Education", "Entertainment"]) {
-    assert.match(await row(label), /next month · ₹[\d,.]+\/month \(last 3 months' average\)/, label);
+    assert.match(await row(label), /next 3 months · ₹[\d,.]+\/month \(last 3 months' average\)/, label);
   }
   await screen("");
 });
