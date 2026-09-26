@@ -1549,11 +1549,12 @@ function renderAvailable() {
   // Each part stays on one line when the text wraps ("+₹1,20,000 in" never splits after the sign).
   const meta = document.getElementById("available-meta");
   meta.innerHTML = "";
-  const parts = [`surplus ${currency.format(a.surplus)} on ${shortDate(a.until)}`, `+${currency.format(a.income)} in`, `−${currency.format(a.expected)} out`];
+  const parts = [`until ${shortDate(a.until)}`, `+${currency.format(a.income)} in`, `−${currency.format(a.expected)} out`];
   if (dip) parts.push(dip.slice(3));
+  // The "·" ends the part before it, so a wrapped line never starts with one.
   parts.forEach((text, i) => {
-    if (i) meta.append(" · ");
-    meta.append(el("span", "nowrap", text));
+    if (i) meta.append(" ");
+    meta.append(el("span", "nowrap", i < parts.length - 1 ? text + " ·" : text));
   });
 
   // Breakdown on the Budget screen.

@@ -573,7 +573,7 @@ test("R36: the forecast covers today to the same date 3 months ahead, month by m
   assert.deepEqual(f.rows.map((r) => r.expense), [3100, 3100, 3100, 2500]);
 });
 
-test("R36: surplus = balance + every expected income − every expected payment; available never exceeds the balance", () => {
+test("R36: surplus = balance + every expected income − every expected payment; available = balance × left ÷ income", () => {
   const today = "2026-09-26";
   const entries = [income("2026-09-01", "Salary", 60000), expense("2026-09-10", "Mandatory Food", 2000)]; // balance 58,000
   const budgets = [{ category: "Mandatory Food", amount: 6000 }];
@@ -588,31 +588,34 @@ test("R36: surplus = balance + every expected income − every expected payment;
   assert.deepEqual(a.rows.map((r) => [r.category, r.expected]), [["Mandatory Food", 20838.71], ["Ntorq", 1500]]);
   assert.equal(a.expected, 22338.71);
   assert.equal(a.surplus, 58000 + 180000 - 22338.71);
-  // 58,000 × 2,15,661.29 ÷ 1,80,000 = 69,491.97 is more than the balance: capped at 58,000.
-  assert.equal(a.available, 58000);
+  // 58,000 × (1,80,000 − 22,338.71) ÷ 1,80,000 = 50,801.97.
+  assert.equal(a.available, 50801.97);
   assert.equal(a.until, "2026-12-25");
 });
 
-test("R36: available = current balance × surplus at the period end ÷ the period's income", () => {
+test("R36: available = current balance × (left at period end ÷ total income of the period)", () => {
   const today = "2026-09-26";
-  const entries = [income("2026-09-01", "Salary", 20000)]; // balance 20,000
+  const entries = [income("2026-09-01", "Salary", 58000)]; // balance 58,000
   const plans = [
-    { type: "income", category: "Salary", amount: 50000, nextDate: "2026-10-01", repeat: "monthly", day: 1 }, // 3 × 50,000
-    { type: "expense", category: "For Mom, Dad, Muthu", amount: 40000, nextDate: "2026-10-02", repeat: "monthly", day: 2 }, // 3 × 40,000
+    { type: "income", category: "Salary", amount: 60000, nextDate: "2026-10-01", repeat: "monthly", day: 1 }, // 3 × 60,000
+    { type: "expense", category: "Health", amount: 9200, nextDate: "2026-10-05", repeat: "none" },
   ];
   const a = availableToSpend(entries, [], plans, today, []);
-  assert.deepEqual([a.balance, a.income, a.expected, a.surplus], [20000, 150000, 120000, 50000]);
-  assert.equal(a.available, 6666.67); // 20,000 × 50,000 ÷ 1,50,000
+  assert.deepEqual([a.balance, a.income, a.expected, a.surplus], [58000, 180000, 9200, 228800]);
+  // The owner's example: 58,000 × (1,70,800 ÷ 1,80,000) = 58,000 × 0.9489 = 55,035.56.
+  assert.equal(a.available, 55035.56);
   assert.ok(a.available <= a.balance);
 });
 
-test("R36: available with no income ahead, a shortfall, or an empty balance", () => {
-  assert.equal(spendable(20000, 15000, 0), 15000, "no income: the surplus itself");
-  assert.equal(spendable(20000, 25000, 0), 20000, "never above the balance");
-  assert.equal(spendable(20000, -5000, 100000), -5000, "a shortfall shows as it is");
-  assert.equal(spendable(0, 10000, 50000), 0, "nothing in hand: nothing to spend yet");
-  assert.equal(spendable(-3000, 10000, 50000), -3000);
-  assert.equal(spendable(10000, 10000, 100000), 1000);
+test("R36: available with no income ahead, payments above income, or an empty balance", () => {
+  assert.equal(spendable(20000, 0, 5000), 15000, "no income: the balance after payments");
+  assert.equal(spendable(20000, 0, 25000), -5000, "no income, not enough: the shortfall");
+  assert.equal(spendable(20000, 10000, 15000), 0, "payments use up all income: nothing free");
+  assert.equal(spendable(20000, 10000, 35000), -5000, "and more than the balance can cover: the shortfall");
+  assert.equal(spendable(0, 150000, 1000), 0, "nothing in hand: nothing to spend yet");
+  assert.equal(spendable(-3000, 50000, 1000), -3000);
+  assert.equal(spendable(10000, 100000, 90000), 1000);
+  assert.equal(spendable(10000, 100000, 0), 10000, "no payments: the whole balance");
   // Nothing in hand yet, though income is coming: 0.
   const salary = { type: "income", category: "Salary", amount: 50000, nextDate: "2026-10-01", repeat: "monthly", day: 1 };
   const a = availableToSpend([], [], [salary], "2026-09-26");
@@ -623,17 +626,17 @@ test("R36: the breakdown explains each case truthfully", () => {
   const money = (n) => "₹" + n;
   const explain = (balance, income, expected) => {
     const surplus = balance + income - expected;
-    return availableExplanation({ balance, income, expected, surplus, available: spendable(balance, surplus, income) }, money)[1];
+    return availableExplanation({ balance, income, expected, surplus, available: spendable(balance, income, expected) }, money);
   };
-  assert.equal(explain(20000, 150000, 120000), "Available: ₹20000 balance × ₹50000 surplus ÷ ₹150000 income = ₹6666.67.");
-  assert.equal(explain(58000, 180000, 9200), "Available: ₹58000 balance × ₹228800 surplus ÷ ₹180000 income = ₹58000 (capped at your balance).");
-  assert.equal(explain(0, 150000, 0), "Available: ₹0 (nothing in hand yet).");
-  assert.equal(explain(20000, 0, 1000), "Available: ₹19000 (no income expected, so the surplus itself, up to your balance).");
-  assert.equal(explain(20000, 10000, 55000), "Available: ₹-25000 (payments are more than balance + income).");
-  assert.equal(
-    availableExplanation({ balance: 1, income: 2, expected: 3, surplus: 0, available: 0 }, money)[0],
-    "Surplus: ₹1 balance + ₹2 income − ₹3 payments = ₹0."
-  );
+  assert.deepEqual(explain(58000, 180000, 9200), [
+    "Left at period end: ₹180000 income − ₹9200 payments = ₹170800; with the balance, ₹228800.",
+    "Available: ₹58000 balance × (₹170800 ÷ ₹180000 income = 94.9%) = ₹55035.56.",
+  ]);
+  assert.equal(explain(0, 150000, 0)[1], "Available: ₹0 (nothing in hand yet).");
+  assert.equal(explain(0, 0, 5000)[1], "Available: ₹-5000 (payments are more than balance + income).");
+  assert.equal(explain(20000, 0, 1000)[1], "Available: ₹19000 (no income expected: the balance after payments).");
+  assert.equal(explain(20000, 10000, 15000)[1], "Available: ₹0 (payments use up all the income).");
+  assert.equal(explain(20000, 10000, 55000)[1], "Available: ₹-25000 (payments are more than balance + income).");
 });
 
 test("R36: budget and planned are compared month by month; the lowest point is reported", () => {

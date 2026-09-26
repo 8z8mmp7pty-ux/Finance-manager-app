@@ -660,31 +660,35 @@ export function cashflowForecast(entries, budgets, plans, today, months = FORECA
 
 // ---------- Available to spend ----------
 
-// Available to spend = current balance × surplus at the period end ÷ the period's income: the share
-// of today's money that the forecast leaves free. Never more than the balance. With no income ahead
-// it is the surplus itself (already ≤ the balance); a shortfall (surplus ≤ 0) shows as it is.
-export function spendable(balance, surplus, income) {
-  if (surplus <= 0 || balance <= 0) return round(Math.min(surplus, balance));
-  const share = income > 0 ? (balance * surplus) / income : surplus;
-  return round(Math.min(share, balance));
+// Available to spend = current balance × (left at the period end ÷ total income of the period),
+// where "left" = the period's income − its expected payments: today's money in the same share as the
+// income the forecast leaves unspent, so never more than the balance. Other cases:
+// - nothing in hand (balance ≤ 0): the balance, or the shortfall if bigger;
+// - no income ahead: what the balance keeps after the payments (balance − payments);
+// - payments use up all income: nothing free (0), or the shortfall if the balance can't cover them.
+export function spendable(balance, income, expected) {
+  const surplus = balance + income - expected;
+  if (balance <= 0 || income <= 0) return round(Math.min(balance, surplus));
+  if (expected >= income) return round(Math.min(0, surplus));
+  return round((balance * (income - expected)) / income);
 }
 
 // The two lines explaining Available to spend (Budget screen), formatted with `money`.
 export function availableExplanation(a, money) {
-  const surplus = `Surplus: ${money(a.balance)} balance + ${money(a.income)} income − ${money(a.expected)} payments = ${money(a.surplus)}.`;
-  if (a.surplus > 0 && a.balance > 0 && a.income > 0) {
-    const capped = (a.balance * a.surplus) / a.income > a.balance;
-    return [
-      surplus,
-      `Available: ${money(a.balance)} balance × ${money(a.surplus)} surplus ÷ ${money(a.income)} income = ${money(a.available)}${capped ? " (capped at your balance)" : ""}.`,
-    ];
+  const left = round(a.income - a.expected);
+  const surplus = `Left at period end: ${money(a.income)} income − ${money(a.expected)} payments = ${money(left)}; with the balance, ${money(a.surplus)}.`;
+  if (a.balance > 0 && a.income > 0 && a.expected < a.income) {
+    const pct = Math.round(((a.income - a.expected) / a.income) * 1000) / 10;
+    return [surplus, `Available: ${money(a.balance)} balance × (${money(left)} ÷ ${money(a.income)} income = ${pct}%) = ${money(a.available)}.`];
   }
   const why =
-    a.balance <= 0
-      ? "nothing in hand yet"
-      : a.surplus <= 0
-        ? "payments are more than balance + income"
-        : "no income expected, so the surplus itself, up to your balance";
+    a.surplus < 0 && a.surplus < a.balance
+      ? "payments are more than balance + income"
+      : a.balance <= 0
+        ? "nothing in hand yet"
+        : a.income <= 0
+          ? "no income expected: the balance after payments"
+          : "payments use up all the income";
   return [surplus, `Available: ${money(a.available)} (${why}).`];
 }
 
@@ -719,7 +723,7 @@ export function availableToSpend(entries, budgets, plans, today, autoLines = [],
     income,
     expected,
     surplus,
-    available: spendable(f.start, surplus, income),
+    available: spendable(f.start, income, expected),
     until: f.end,
     lowest,
     rows,

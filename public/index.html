@@ -20,7 +20,7 @@
       <section class="balance-card">
         <p class="label">Current Balance</p>
         <p id="balance" class="balance">₹0.00</p>
-        <a href="#budget" id="available" class="available-card" aria-label="Available to spend: your balance's share of the 3-month surplus. Tap for the breakdown">
+        <a href="#budget" id="available" class="available-card" aria-label="Available to spend: your balance times the share of income left after the 3-month forecast. Tap for the breakdown">
           <span class="label">Available to spend</span>
           <span id="available-amount" class="available-amount">₹0.00</span>
           <span id="available-meta" class="available-meta"></span>
@@ -177,7 +177,7 @@
       <section class="card" id="available-breakdown">
         <h2 id="available-title">Available to spend</h2>
         <p id="available-summary" class="budget-summary"></p>
-        <p class="step-hint">Available = your balance × the surplus at the end of the 3-month forecast ÷ the income expected in it, never more than your balance. Surplus = balance + expected income − expected payments. For each category and month: its budget or its planned + Auto amounts, whichever is more.</p>
+        <p class="step-hint">Available = your balance × (what is left at the end of the 3-month forecast ÷ the income expected in it), where left = expected income − expected payments. So it is never more than your balance. For each category and month: its budget or its planned + Auto amounts, whichever is more.</p>
         <ul id="available-list" class="report-list"></ul>
       </section>
 
