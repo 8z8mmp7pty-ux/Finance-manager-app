@@ -246,3 +246,74 @@ test("R11: 'Transfer all' moves the whole reserve even when it is split across a
   assert.deepEqual(salary.slice(1), ["–", "–", "–", "–"], "no Salary money left in any account");
   await page.tap("#report-back");
 });
+
+async function post(flow, category, amount, { reserve: into, account: acct } = {}) {
+  await page.tap(`.type-card[data-flow=${flow}]`);
+  await settle();
+  await page.tap(`#pick-grid .category-card:has-text("${category}")`);
+  await settle();
+  if (acct) await page.tap(`#account-chips .chip:has-text("${acct}")`);
+  if (into) await page.tap(`#pay-from-chips .chip:has-text("${into}")`);
+  await page.fill("#amount", String(amount));
+  await page.tap("#post-btn");
+}
+
+async function startTransferAll(from, to) {
+  await page.tap(`.reserve-card[aria-label^="${from}"]`);
+  await settle();
+  await page.tap(`#pick-grid .category-card:has-text("${to}")`);
+  await settle();
+  await page.tap("#transfer-all");
+}
+
+test("R11: Transfer all never overdraws a reserve that is negative in one account", { skip }, async () => {
+  await post("income", "Business", 3000);
+  await cards(15);
+  await post("expense", "Shopping", 500, { reserve: "Business", account: "Cash" });
+  await cards(16);
+  assert.equal(await reserve("Business"), "₹2,500.00");
+  await startTransferAll("Business", "General Reserve");
+  assert.equal(await page.inputValue("#amount"), "2500.00");
+  await page.tap("#post-btn");
+  await cards(17);
+  assert.equal(await reserve("Business"), "₹0.00");
+  assert.equal(await page.textContent("#balance"), "₹51,500.00");
+});
+
+test("R11: a Transfer all amount does not carry over to a transfer from another reserve", { skip }, async () => {
+  await post("income", "Freelance", 500);
+  await cards(18);
+  await post("income", "Freelance", 250, { account: "GPay" });
+  await cards(19);
+  await startTransferAll("Freelance", "General Reserve");
+  assert.equal(await page.inputValue("#amount"), "750.00");
+  await page.tap('.reserve-card[aria-label^="General Reserve"]');
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Freelance")');
+  await settle();
+  assert.equal(await page.inputValue("#amount"), "", "no leftover amount");
+  assert.ok(await page.isVisible('#account-chips .chip[aria-checked="true"]'), "back to a one-account transfer");
+});
+
+test("R11: if Transfer all fails halfway, the rest can be moved and nothing is lost", { skip }, async () => {
+  let posts = 0;
+  await page.route("**/api/entries", async (route) => {
+    if (route.request().method() === "POST" && ++posts === 2) {
+      await route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"Simulated failure"}' });
+    } else {
+      await route.continue();
+    }
+  });
+  await startTransferAll("Freelance", "General Reserve");
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("Simulated failure"));
+  assert.match(await page.textContent("#status"), /Moved ₹500\.00 of ₹750\.00.*Tap Transfer to move the rest/);
+  assert.equal(await page.inputValue("#amount"), "250.00");
+  assert.match(await page.textContent("#available-text"), /GPay ₹250\.00/);
+  await page.unroute("**/api/entries");
+
+  await page.tap("#post-btn");
+  await cards(21);
+  assert.equal(await reserve("Freelance"), "₹0.00");
+  assert.equal(await page.textContent("#balance"), "₹52,250.00");
+});

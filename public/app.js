@@ -6,6 +6,7 @@ import {
   reserveReport,
   reserveAccountGrid,
   accountBalances,
+  transferAllPlan,
 } from "./ledger.js";
 
 const CATEGORIES = {
@@ -433,12 +434,13 @@ function renderPickCards(items, onPick) {
   }
 }
 
-// Where a reserve's money is kept: accounts holding a positive amount of it.
+// "Transfer all": how much to move out of each account so the reserve ends at exactly zero.
 function reserveSplit(reserve) {
-  const grid = reserveAccountGrid(entries);
-  return grid.accounts
-    .map((account) => ({ account, amount: grid.cell(reserve, account) }))
-    .filter((p) => p.amount > 0.004);
+  return transferAllPlan(entries, reserve);
+}
+
+function planTotal(parts) {
+  return Math.round(parts.reduce((s, p) => s + p.amount, 0) * 100) / 100;
 }
 
 // How much "Transfer all" / "Move all" can move for the current draft.
@@ -526,13 +528,12 @@ function startFlow(flow) {
   draft.flow = flow;
   draft.reserve = GENERAL;
   draft.account = DEFAULT_ACCOUNT;
-  draft.transferAll = false;
   postedMsg.hidden = true;
   goToStage(FLOWS[flow][1]);
 }
 
 function startTransferFrom(name) {
-  Object.assign(draft, { flow: "transfer", from: name, to: null, account: DEFAULT_ACCOUNT, transferAll: false });
+  Object.assign(draft, { flow: "transfer", from: name, to: null, account: DEFAULT_ACCOUNT });
   postedMsg.hidden = true;
   goToStage("to");
   wizard.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -569,9 +570,10 @@ document.getElementById("chosen").addEventListener("click", () => {
 moveAllBtn.addEventListener("click", () => {
   if (draft.flow === "transfer") {
     // Move the whole reserve, from every account that holds some of it.
-    const total = reserveSplit(draft.from).reduce((s, p) => s + p.amount, 0);
+    const total = planTotal(reserveSplit(draft.from));
     draft.transferAll = total > 0;
     amountInput.value = total > 0 ? total.toFixed(2) : "";
+    if (!(total > 0)) showStatus(`${draft.from} has nothing to move.`);
     renderAmountChoices();
   } else {
     const available = draftAvailable();
@@ -647,7 +649,12 @@ function showPosted(message) {
 // "Transfer all": one transfer per account that holds some of the reserve's money.
 async function postTransferAll() {
   const parts = reserveSplit(draft.from);
-  if (!parts.length || !draft.to) return;
+  if (!draft.to) return;
+  if (!parts.length) {
+    showStatus(`${draft.from} has nothing to move.`);
+    return;
+  }
+  const total = planTotal(parts);
   const common = { type: "transfer", reserve: draft.from, toReserve: draft.to, description: noteInput.value.trim(), date: dateInput.value || today() };
 
   postBtn.disabled = true;
@@ -664,10 +671,18 @@ async function postTransferAll() {
     const from = parts.length > 1 ? ` (from ${parts.length} accounts)` : "";
     showPosted(`✓ Moved all ${currency.format(moved)} to ${common.toReserve}${from}`);
   } catch (err) {
-    // Some transfers may have been saved; reload so the screen matches the database.
+    // Some transfers may have been saved: reload, then show what is left to move.
     const message = err.message;
     await loadEntries();
-    showStatus(message);
+    const rest = planTotal(reserveSplit(draft.from));
+    amountInput.value = rest > 0 ? rest.toFixed(2) : "";
+    draft.transferAll = rest > 0;
+    renderAmountChoices();
+    showStatus(
+      moved > 0
+        ? `Moved ${currency.format(moved)} of ${currency.format(total)}, then: ${message}. Tap Transfer to move the rest.`
+        : message
+    );
   } finally {
     postBtn.disabled = false;
   }

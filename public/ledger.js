@@ -235,3 +235,26 @@ export function accountBalances(entries) {
   const grid = reserveAccountGrid(entries);
   return grid.accounts.map((name) => ({ name, balance: grid.columnTotals[name] }));
 }
+
+// What "Transfer all" moves out of `reserve`: one part per account, adding up to exactly the
+// reserve's balance. Money is only taken from accounts where the reserve has money; if it is
+// overdrawn in another account, that shortfall is left behind (taken off the largest parts first),
+// so the reserve ends at exactly zero. Nothing moves if the reserve's balance is zero or less.
+export function transferAllPlan(entries, reserve) {
+  const grid = reserveAccountGrid(entries);
+  const total = grid.rowTotals[reserve] || 0;
+  if (total <= EPSILON) return [];
+  const parts = grid.accounts
+    .map((account) => ({ account, amount: grid.cell(reserve, account) }))
+    .filter((p) => p.amount > EPSILON)
+    .sort((a, b) => b.amount - a.amount);
+  let excess = round(parts.reduce((s, p) => s + p.amount, 0) - total);
+  for (const p of parts) {
+    if (excess <= EPSILON) break;
+    const cut = Math.min(p.amount, excess);
+    p.amount = round(p.amount - cut);
+    excess = round(excess - cut);
+  }
+  const order = new Map(grid.accounts.map((a, i) => [a, i]));
+  return parts.filter((p) => p.amount > EPSILON).sort((a, b) => order.get(a.account) - order.get(b.account));
+}

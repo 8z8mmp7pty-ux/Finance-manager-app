@@ -1,7 +1,7 @@
 // Tests for the FIFO reserve logic. Requirement IDs refer to REQUIREMENTS.md.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances } from "../public/ledger.js";
+import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -183,4 +183,33 @@ test("R20: grid rows add up to reserve balances, columns to account balances, to
   assert.equal(grid.total, 60000 + 8000 - 15000 - 500);
   assert.equal(grid.cell(GENERAL, "Super Money"), -15000 + 20000 - 2000);
   assert.equal(grid.cell(GENERAL, "Cash"), 1500);
+});
+
+test("R11: Transfer all moves exactly the reserve's balance, across accounts", () => {
+  const split = [
+    income("2026-08-01", "Salary", 2000),
+    withAccount(income("2026-08-02", "Salary", 1000), "Cash"),
+  ];
+  assert.deepEqual(transferAllPlan(split, "Salary"), [
+    { account: "Super Money", amount: 2000 },
+    { account: "Cash", amount: 1000 },
+  ]);
+
+  // Overdrawn in one account: +3000 in Super Money, -500 in Cash => balance 2500.
+  const overdrawn = [
+    income("2026-08-01", "Business", 3000),
+    withAccount(expense("2026-08-02", "Shopping", 500, "Business"), "Cash"),
+  ];
+  const plan = transferAllPlan(overdrawn, "Business");
+  assert.deepEqual(plan, [{ account: "Super Money", amount: 2500 }]);
+  const after = [...overdrawn, ...plan.map((p) => ({ ...transfer("2026-08-03", "Business", GENERAL, p.amount), account: p.account }))];
+  const balances = Object.fromEntries(reserveBalances(after, "2026-08-15").map((r) => [r.name, r.balance]));
+  assert.equal(balances.Business, 0, "reserve ends at exactly zero");
+
+  // Negative overall: nothing to move.
+  const negative = [
+    income("2026-08-01", "Business", 100),
+    withAccount(expense("2026-08-02", "Shopping", 500, "Business"), "Cash"),
+  ];
+  assert.deepEqual(transferAllPlan(negative, "Business"), []);
 });
