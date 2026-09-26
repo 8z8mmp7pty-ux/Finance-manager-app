@@ -8,11 +8,15 @@
 </head>
 <body>
   <main class="container">
-    <h1>Finance Manager</h1>
+    <div class="topbar">
+      <a href="#" id="nav-back" class="back-btn" aria-label="Back to home" hidden>←</a>
+      <h1 id="page-title">Finance Manager</h1>
+    </div>
 
     <p id="status" class="status" hidden></p>
 
     <div id="app" hidden>
+     <div id="screen-home" class="screen">
       <section class="balance-card">
         <p class="label">Current Balance</p>
         <p id="balance" class="balance">₹0.00</p>
@@ -21,6 +25,12 @@
           <div><span class="label">Expenses</span><span id="total-expense" class="expense">₹0.00</span></div>
         </div>
       </section>
+
+      <nav class="nav-grid" aria-label="Sections">
+        <a href="#entries" class="nav-card" id="nav-entries"><span class="nav-icon" aria-hidden="true">📋</span><span>Entries</span></a>
+        <a href="#reports" class="nav-card" id="nav-reports"><span class="nav-icon" aria-hidden="true">📊</span><span>Reports</span></a>
+        <a href="#budget" class="nav-card" id="nav-budget"><span class="nav-icon" aria-hidden="true">🎯</span><span>Budget</span></a>
+      </nav>
 
       <section class="accounts-section">
         <h2 class="section-title">Accounts <span class="hint">Tap an account for a contra entry</span></h2>
@@ -113,7 +123,9 @@
 
         <p id="posted" class="posted" hidden></p>
       </section>
+     </div>
 
+     <div id="screen-reports" class="screen" hidden>
       <section class="card report" id="report">
         <div class="wizard-header">
           <button type="button" id="report-back" class="back-btn" aria-label="Back" hidden>←</button>
@@ -121,12 +133,67 @@
         </div>
         <div id="report-body"></div>
       </section>
+     </div>
 
-      <section>
-        <h2 class="section-title">Entries <span class="hint">Tap a card to edit</span></h2>
-        <p id="empty" class="empty">No entries yet.</p>
-        <ul id="entries" class="entry-cards"></ul>
+     <div id="screen-entries" class="screen" hidden>
+      <div class="quick-filters" id="quick-period" role="group" aria-label="Period">
+        <button type="button" class="qf" data-period="all">All time</button>
+        <button type="button" class="qf" data-period="this-month">This month</button>
+        <button type="button" class="qf" data-period="last-month">Last month</button>
+        <button type="button" class="qf" data-period="last-7">Last 7 days</button>
+        <button type="button" class="qf" data-period="this-year">This year</button>
+      </div>
+      <div class="quick-filters" id="quick-type" role="group" aria-label="Type">
+        <button type="button" class="qf" data-type="">All types</button>
+        <button type="button" class="qf" data-type="income">↓ Income</button>
+        <button type="button" class="qf" data-type="expense">↑ Expenses</button>
+        <button type="button" class="qf" data-type="transfer">⇄ Transfers</button>
+        <button type="button" class="qf" data-type="contra">🔁 Contra</button>
+      </div>
+      <details class="more-filters" id="more-filters">
+        <summary>More filters <span id="filter-count" class="filter-count" hidden></span></summary>
+        <div class="filter-fields">
+          <label>Category <select id="f-category"></select></label>
+          <label>Reserve <select id="f-reserve"></select></label>
+          <label>Account <select id="f-account"></select></label>
+          <div class="row">
+            <label>From <input type="date" id="f-from"></label>
+            <label>To <input type="date" id="f-to"></label>
+          </div>
+          <label>Search <input type="search" id="f-search" placeholder="Note, category, reserve…"></label>
+          <button type="button" id="f-clear" class="secondary">Clear all filters</button>
+        </div>
+      </details>
+      <p id="filter-summary" class="filter-summary"></p>
+      <p id="empty" class="empty">No entries yet.</p>
+      <ul id="entries" class="entry-cards"></ul>
+     </div>
+
+     <div id="screen-budget" class="screen" hidden>
+      <section class="card" id="budget-card">
+        <div class="card-head">
+          <h2>This month's budget</h2>
+          <button type="button" id="budget-add" class="chip-btn">+ Set budget</button>
+        </div>
+        <p id="budget-summary" class="budget-summary"></p>
+        <ul id="budget-list" class="report-list"></ul>
       </section>
+
+      <section class="card" id="plans-card">
+        <div class="card-head">
+          <h2>Planned cashflows</h2>
+          <button type="button" id="plan-add" class="chip-btn">+ Plan</button>
+        </div>
+        <p class="step-hint">Expected income and expenses. Tap ✓ Record when one happens to add it as an entry.</p>
+        <ul id="plan-list" class="report-list"></ul>
+      </section>
+
+      <section class="card" id="forecast-card">
+        <h2>Cashflow forecast</h2>
+        <p class="step-hint">From today's balance: planned income in; for each category, its budget or what is planned for it, whichever is more (this month: the budget still left).</p>
+        <div class="grid-wrap"><table class="grid-table" id="forecast-table"></table></div>
+      </section>
+     </div>
     </div>
   </main>
 
@@ -188,6 +255,49 @@
       <input id="edit-date" type="date" required aria-label="Date">
       <button type="submit" id="edit-save">Save Changes</button>
       <button type="button" id="edit-delete" class="danger">Delete Entry</button>
+    </form>
+  </dialog>
+
+  <dialog id="budget-dialog" aria-labelledby="budget-title">
+    <form id="budget-form" method="dialog">
+      <div class="sheet-header">
+        <h2 id="budget-title">Monthly budget</h2>
+        <button type="button" id="budget-close" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="category-grid compact" id="budget-categories" role="radiogroup" aria-label="Category"></div>
+      <label class="amount-field small">
+        <span class="currency" aria-hidden="true">₹</span>
+        <input id="budget-amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Budget per month">
+      </label>
+      <button type="submit" id="budget-save">Save Budget</button>
+      <button type="button" id="budget-remove" class="danger">Remove Budget</button>
+    </form>
+  </dialog>
+
+  <dialog id="plan-dialog" aria-labelledby="plan-title">
+    <form id="plan-form" method="dialog">
+      <div class="sheet-header">
+        <h2 id="plan-title">Plan a cashflow</h2>
+        <button type="button" id="plan-close" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="type-toggle" role="radiogroup" aria-label="Type">
+        <label class="toggle income"><input type="radio" name="plan-type" value="income"> Income</label>
+        <label class="toggle expense"><input type="radio" name="plan-type" value="expense" checked> Expense</label>
+      </div>
+      <div class="category-grid compact" id="plan-categories" role="radiogroup" aria-label="Category"></div>
+      <label class="amount-field small">
+        <span class="currency" aria-hidden="true">₹</span>
+        <input id="plan-amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">
+      </label>
+      <label class="field-label" for="plan-date">Expected on</label>
+      <input id="plan-date" type="date" required>
+      <div class="type-toggle" role="radiogroup" aria-label="Repeat">
+        <label class="toggle plain"><input type="radio" name="plan-repeat" value="none" checked> One time</label>
+        <label class="toggle plain"><input type="radio" name="plan-repeat" value="monthly"> Every month</label>
+      </div>
+      <input id="plan-note" type="text" placeholder="Note (optional)" maxlength="100">
+      <button type="submit" id="plan-save">Save Plan</button>
+      <button type="button" id="plan-delete" class="danger">Delete Plan</button>
     </form>
   </dialog>
 

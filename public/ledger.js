@@ -136,15 +136,12 @@ export function reserveMonths(entries, reserve) {
 }
 
 // "What happened to <reserve> money of <month>?"
-export function reserveReport(entries, reserve, month) {
-  const { lots, allocations } = allocate(entries);
-  const monthLots = lots.filter((l) => l.reserve === reserve && monthOf(l.date) === month);
-  const inMonth = new Set(monthLots);
-
-  // One row per expense/transfer, even if it drew on several lots of this month.
+// Where a set of lots (money received) went: one row per expense/transfer that used it.
+function usageOf(selected, allocations) {
+  const inSet = new Set(selected);
   const rows = new Map();
   for (const a of allocations) {
-    if (!inMonth.has(a.lot)) continue;
+    if (!inSet.has(a.lot)) continue;
     if (!rows.has(a.entry.id)) {
       rows.set(a.entry.id, { entry: a.entry, amount: 0, before: false, otherSources: [], uncovered: 0, usedOn: null });
     }
@@ -163,7 +160,7 @@ export function reserveReport(entries, reserve, month) {
     for (const a of allocations) {
       if (a.entry !== row.entry) continue;
       fromLots = round(fromLots + a.amount);
-      if (inMonth.has(a.lot)) continue;
+      if (inSet.has(a.lot)) continue;
       const key = a.lot.reserve + "|" + monthOf(a.lot.date);
       if (!others.has(key)) others.set(key, { reserve: a.lot.reserve, month: monthOf(a.lot.date), amount: 0 });
       others.get(key).amount = round(others.get(key).amount + a.amount);
@@ -173,23 +170,56 @@ export function reserveReport(entries, reserve, month) {
   }
 
   const items = chronological([...rows.values()].map((r) => ({ ...r, date: r.entry.date, id: r.entry.id })));
-  const received = round(monthLots.reduce((s, l) => s + l.amount, 0));
-  const remaining = round(monthLots.reduce((s, l) => s + l.remaining, 0));
-  const exhausted = monthLots.length > 0 && remaining <= EPSILON;
-  const earlierLots = lots.filter((l) => l.reserve === reserve && monthOf(l.date) < month);
-
+  const received = round(selected.reduce((s, l) => s + l.amount, 0));
+  const remaining = round(selected.reduce((s, l) => s + l.remaining, 0));
+  const exhausted = selected.length > 0 && remaining <= EPSILON;
   return {
-    reserve,
-    month,
-    lots: monthLots,
+    lots: selected,
     received,
     used: round(received - remaining),
     remaining,
     items,
     firstUsedOn: items.length ? items.map((i) => i.usedOn).sort()[0] : null,
-    exhaustedOn: exhausted ? monthLots.map((l) => l.exhaustedOn).sort().pop() : null,
+    exhaustedOn: exhausted ? selected.map((l) => l.exhaustedOn).sort().pop() : null,
+  };
+}
+
+// "What happened to <reserve> money of <month>?"
+export function reserveReport(entries, reserve, month) {
+  const { lots, allocations } = allocate(entries);
+  const monthLots = lots.filter((l) => l.reserve === reserve && monthOf(l.date) === month);
+  const earlierLots = lots.filter((l) => l.reserve === reserve && monthOf(l.date) < month);
+  return {
+    reserve,
+    month,
+    ...usageOf(monthLots, allocations),
     hadEarlierMoney: earlierLots.length > 0,
     earlierMoneyLeft: round(earlierLots.reduce((s, l) => s + l.remaining, 0)),
+  };
+}
+
+// Reserve utilisation: every receipt (income or transfer in) of a reserve, newest first,
+// with how much of it has been used and what is left.
+export function reserveReceipts(entries, reserve) {
+  const { lots } = allocate(entries);
+  return lots
+    .filter((l) => l.reserve === reserve)
+    .map((l) => ({ lot: l, id: l.id, date: l.date, label: l.label, amount: l.amount, used: round(l.amount - l.remaining), remaining: l.remaining }))
+    .sort((a, b) => b.date.localeCompare(a.date) || Number(b.id) - Number(a.id));
+}
+
+// Where one receipt (the lot created by entry `lotId` in `reserve`) went.
+export function receiptReport(entries, reserve, lotId) {
+  const { lots, allocations } = allocate(entries);
+  const lot = lots.find((l) => l.reserve === reserve && String(l.id) === String(lotId));
+  if (!lot) return null;
+  const older = lots.filter((l) => l.reserve === reserve && l !== lot && (l.date < lot.date || (l.date === lot.date && Number(l.id) < Number(lot.id))));
+  return {
+    reserve,
+    lot,
+    ...usageOf([lot], allocations),
+    hadEarlierMoney: older.length > 0,
+    earlierMoneyLeft: round(older.reduce((s, l) => s + l.remaining, 0)),
   };
 }
 
@@ -257,4 +287,163 @@ export function transferAllPlan(entries, reserve) {
   }
   const order = new Map(grid.accounts.map((a, i) => [a, i]));
   return parts.filter((p) => p.amount > EPSILON).sort((a, b) => order.get(a.account) - order.get(b.account));
+}
+
+// ---------- Dates ----------
+
+// Adds months to a YYYY-MM-DD date, keeping the day where possible (31 Jan + 1 month = 28/29 Feb).
+export function addMonths(date, months) {
+  const [y, m, d] = date.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(d, lastDay)).padStart(2, "0")}`;
+}
+
+function monthStart(month) {
+  return month + "-01";
+}
+
+// ---------- Entries filters ----------
+
+// Date range of a quick period, relative to `today` (YYYY-MM-DD). null = no limit.
+export function periodRange(period, today) {
+  const month = monthOf(today);
+  if (period === "this-month") return { from: monthStart(month), to: addMonths(monthStart(month), 1) };
+  if (period === "last-month") {
+    const last = monthOf(addMonths(monthStart(month), -1));
+    return { from: monthStart(last), to: monthStart(month) };
+  }
+  if (period === "last-7") {
+    const d = new Date(today + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - 6);
+    return { from: d.toISOString().slice(0, 10), to: null, toInclusive: today };
+  }
+  if (period === "this-year") return { from: today.slice(0, 4) + "-01-01", to: String(Number(today.slice(0, 4)) + 1) + "-01-01" };
+  return { from: null, to: null };
+}
+
+// Filters: { period, type, category, reserve, account, from, to, search }. Empty values match all.
+// `from`/`to` are inclusive YYYY-MM-DD dates and apply on top of the period.
+export function filterEntries(entries, filters, today) {
+  const f = filters || {};
+  const range = periodRange(f.period || "all", today);
+  const search = (f.search || "").trim().toLowerCase();
+  return entries.filter((e) => {
+    if (range.from && e.date < range.from) return false;
+    if (range.to && e.date >= range.to) return false;
+    if (range.toInclusive && e.date > range.toInclusive) return false;
+    if (f.from && e.date < f.from) return false;
+    if (f.to && e.date > f.to) return false;
+    if (f.type && e.type !== f.type) return false;
+    if (f.category && e.category !== f.category) return false;
+    if (f.reserve && e.reserve !== f.reserve && e.toReserve !== f.reserve) return false;
+    if (f.account && (e.account || DEFAULT_ACCOUNT) !== f.account && e.toAccount !== f.account) return false;
+    if (search) {
+      const haystack = [e.category, e.description, e.reserve, e.toReserve, e.account, e.toAccount].join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+}
+
+// Totals of a list of entries (transfers and contra entries move money, so they are not counted).
+export function totalsOf(entries) {
+  let income = 0;
+  let expense = 0;
+  for (const e of entries) {
+    if (e.type === "income") income += e.amount;
+    else if (e.type === "expense") expense += e.amount;
+  }
+  return { income: round(income), expense: round(expense), net: round(income - expense) };
+}
+
+// ---------- Spending by category ----------
+
+// Expenses grouped by category (classification), largest first.
+export function spendingByCategory(entries, filters, today) {
+  const expenses = filterEntries(entries, { ...filters, type: "expense" }, today);
+  const groups = new Map();
+  for (const e of expenses) {
+    const key = e.category || e.description || "Other";
+    if (!groups.has(key)) groups.set(key, { category: key, amount: 0, count: 0 });
+    const g = groups.get(key);
+    g.amount = round(g.amount + e.amount);
+    g.count += 1;
+  }
+  const total = round([...groups.values()].reduce((s, g) => s + g.amount, 0));
+  const rows = [...groups.values()]
+    .map((g) => ({ ...g, share: total ? g.amount / total : 0 }))
+    .sort((a, b) => b.amount - a.amount || a.category.localeCompare(b.category));
+  return { total, rows };
+}
+
+// ---------- Budgets and planned cashflows ----------
+
+// Budget vs spending for the month of `today`, one row per budgeted category.
+export function budgetStatus(entries, budgets, today) {
+  const spent = new Map(spendingByCategory(entries, { period: "this-month" }, today).rows.map((r) => [r.category, r.amount]));
+  const rows = budgets
+    .map((b) => {
+      const used = spent.get(b.category) || 0;
+      return { category: b.category, budget: b.amount, spent: used, left: round(b.amount - used), share: b.amount ? used / b.amount : 0 };
+    })
+    .sort((a, b) => b.share - a.share || a.category.localeCompare(b.category));
+  const budget = round(rows.reduce((s, r) => s + r.budget, 0));
+  const spentTotal = round(rows.reduce((s, r) => s + r.spent, 0));
+  return { rows, budget, spent: spentTotal, left: round(budget - spentTotal) };
+}
+
+// Dates on which a plan happens, from its next date up to (not including) `until`.
+// Anything overdue counts as due today.
+export function planOccurrences(plan, today, until) {
+  const dates = [];
+  let date = plan.nextDate;
+  for (let i = 0; date < until && i < 240; i++) {
+    dates.push(date < today ? today : date);
+    if (plan.repeat !== "monthly") break;
+    date = addMonths(plan.nextDate, i + 1);
+  }
+  return dates;
+}
+
+// Month-by-month forecast from the current balance: planned income in, and for each expense
+// category the larger of its budget and what is planned for it (this month: the budget left).
+export function cashflowForecast(entries, budgets, plans, today, months = 6) {
+  const first = monthOf(today);
+  const until = addMonths(monthStart(first), months);
+  const spentThisMonth = new Map(spendingByCategory(entries, { period: "this-month" }, today).rows.map((r) => [r.category, r.amount]));
+  const budgetOf = new Map(budgets.map((b) => [b.category, b.amount]));
+
+  const planned = new Map(); // month -> { income, expense: Map(category -> amount), items: [] }
+  for (const plan of plans) {
+    for (const date of planOccurrences(plan, today, until)) {
+      const m = monthOf(date);
+      if (!planned.has(m)) planned.set(m, { income: 0, expense: new Map(), items: [] });
+      const bucket = planned.get(m);
+      bucket.items.push({ plan, date });
+      if (plan.type === "income") bucket.income = round(bucket.income + plan.amount);
+      else bucket.expense.set(plan.category, round((bucket.expense.get(plan.category) || 0) + plan.amount));
+    }
+  }
+
+  let balance = totalsOf(entries).net;
+  const start = balance;
+  const rows = [];
+  for (let i = 0; i < months; i++) {
+    const m = monthOf(addMonths(monthStart(first), i));
+    const bucket = planned.get(m) || { income: 0, expense: new Map(), items: [] };
+    const categories = new Set([...budgetOf.keys(), ...bucket.expense.keys()]);
+    let out = 0;
+    for (const c of categories) {
+      const budget = budgetOf.get(c) || 0;
+      const budgetDue = i === 0 ? Math.max(0, budget - (spentThisMonth.get(c) || 0)) : budget;
+      out += Math.max(budgetDue, bucket.expense.get(c) || 0);
+    }
+    out = round(out);
+    balance = round(balance + bucket.income - out);
+    rows.push({ month: m, income: bucket.income, expense: out, balance, items: bucket.items.sort((a, b) => a.date.localeCompare(b.date)) });
+  }
+  return { start, rows };
 }

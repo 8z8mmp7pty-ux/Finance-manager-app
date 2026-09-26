@@ -13,7 +13,7 @@ let server, browser, page;
 
 before(async () => {
   if (skip) return;
-  await raw("DROP TABLE IF EXISTS entries");
+  await raw("DROP TABLE IF EXISTS entries, budgets, plans");
   server = spawn(process.execPath, ["dev-server.js"], {
     cwd: root,
     env: { ...process.env, DATABASE_URL: TEST_DB, PORT: String(PORT) },
@@ -39,6 +39,21 @@ const settle = () => page.waitForTimeout(250);
 const cards = (n) => page.waitForFunction((n) => document.querySelectorAll(".entry-card").length === n, n);
 const reserve = async (name) =>
   page.$eval(`.reserve-card[aria-label^="${name}"] .reserve-balance`, (e) => e.textContent);
+
+// Switches screen the way the nav buttons do (#entries, #reports, #budget; "" = home).
+async function screen(name) {
+  await page.evaluate((n) => {
+    location.hash = n;
+  }, name);
+  await page.waitForSelector(`#screen-${name || "home"}:not([hidden])`);
+}
+
+// Opens a report from the Reports menu.
+async function openReport(kind) {
+  await screen("reports");
+  while (await page.isVisible("#report-back")) await page.tap("#report-back");
+  await page.tap(`[data-report="${kind}"]`);
+}
 
 const account = async (name) =>
   page.$eval(`.account-card[aria-label^="${name}"] .account-balance`, (e) => e.textContent);
@@ -98,6 +113,7 @@ test("R8/R9/R10: income reserves, income allotted elsewhere, expense paid from a
 });
 
 test("R14/R13: report shows what happened to Salary of August (FIFO after July)", { skip }, async () => {
+  await openReport("reserve");
   await page.tap('#report-body .category-card:has-text("Salary")');
   await page.tap('#report-body .category-card:has-text("August 2026")');
   const text = (await page.textContent("#report-body")).replace(/\s+/g, " ");
@@ -109,8 +125,7 @@ test("R14/R13: report shows what happened to Salary of August (FIFO after July)"
   assert.match(text, /Shopping/);
   assert.match(text, /₹15,000\.00 of ₹45,000\.00 — ₹30,000\.00 from Salary of July 2026/);
   assert.doesNotMatch(text, /Transport/, "General Reserve expense is not part of the salary report");
-  await page.tap("#report-back");
-  await page.tap("#report-back");
+  await screen("");
 });
 
 test("R11/R12: tapping a reserve card transfers its whole balance; total balance unchanged", { skip }, async () => {
@@ -128,20 +143,23 @@ test("R11/R12: tapping a reserve card transfers its whole balance; total balance
 });
 
 test("R5: tapping an entry card opens the editor; changes are saved to the database", { skip }, async () => {
+  await screen("entries");
   await page.tap('.entry-card:has-text("Transport")');
   await page.waitForSelector("dialog[open]");
   await page.fill("#edit-amount", "700");
   await page.tap("#edit-save");
   await page.waitForFunction(() => !document.querySelector("dialog").open);
   await page.reload();
-  await page.waitForSelector(".entry-card");
+  await page.waitForSelector(".entry-card", { state: "attached" });
   assert.equal(await page.textContent("#balance"), "₹45,300.00");
+  await screen("");
 });
 
 test("R9: an income's reserve can be changed in the editor", { skip }, async () => {
   await addEntry("income", "Gift", 1000, { date: "2026-08-10" });
   await cards(8);
   assert.equal(await reserve("Gift"), "₹1,000.00");
+  await screen("entries");
   await page.tap('.entry-card:has-text("Gift")');
   await page.waitForSelector("dialog[open]");
   assert.equal(await page.textContent("#edit-pay-from-label"), "Goes into reserve");
@@ -154,10 +172,11 @@ test("R9: an income's reserve can be changed in the editor", { skip }, async () 
   await page.tap("#edit-save");
   await page.waitForFunction(() => !document.querySelector("dialog").open);
   await page.reload();
-  await page.waitForSelector(".entry-card");
+  await page.waitForSelector(".entry-card", { state: "attached" });
   assert.equal(await page.locator('.reserve-card[aria-label^="Gift"]').count(), 0);
   assert.equal(await reserve("General Reserve"), "₹46,300.00");
   assert.equal(await page.textContent("#balance"), "₹46,300.00");
+  await screen("");
 });
 
 test("R17/R18: payments default to Super Money; another account can be chosen", { skip }, async () => {
@@ -199,8 +218,8 @@ test("R19: contra moves money between accounts without changing reserves or the 
 });
 
 test("R20: grid report of reserves × accounts adds up", { skip }, async () => {
-  await page.tap("#report .grid-card");
-  const rows = await page.$$eval(".grid-table tr", (trs) =>
+  await openReport("grid");
+  const rows = await page.$$eval("#report .grid-table tr", (trs) =>
     trs.map((tr) => [...tr.children].map((c) => c.innerText.replace(/\s+/g, " ").trim()))
   );
   assert.deepEqual(rows[0], ["Reserve", "Super Money", "GPay", "Cash", "Total"]);
@@ -208,7 +227,7 @@ test("R20: grid report of reserves × accounts adds up", { skip }, async () => {
   assert.deepEqual(general.slice(1), ["₹41,300", "-₹300", "₹5,000", "₹46,000"]);
   const total = rows[rows.length - 1];
   assert.deepEqual(total, ["Total", "₹41,300", "-₹300", "₹5,000", "₹46,000"]);
-  await page.tap("#report-back");
+  await screen("");
 });
 
 test("R11: 'Transfer all' moves the whole reserve even when it is split across accounts", { skip }, async () => {
@@ -238,13 +257,13 @@ test("R11: 'Transfer all' moves the whole reserve even when it is split across a
   assert.equal(await reserve("Salary"), "₹0.00");
   assert.equal(await page.textContent("#balance"), "₹49,000.00");
 
-  await page.tap("#report .grid-card");
-  const rows = await page.$$eval(".grid-table tr", (trs) =>
+  await openReport("grid");
+  const rows = await page.$$eval("#report .grid-table tr", (trs) =>
     trs.map((tr) => [...tr.children].map((c) => c.innerText.replace(/\s+/g, " ").trim()))
   );
   const salary = rows.find((r) => r[0].includes("Salary"));
   assert.deepEqual(salary.slice(1), ["–", "–", "–", "–"], "no Salary money left in any account");
-  await page.tap("#report-back");
+  await screen("");
 });
 
 async function post(flow, category, amount, { reserve: into, account: acct } = {}) {
@@ -354,19 +373,19 @@ test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Re
   await settle();
   await page.fill("#amount", "2000");
   await page.tap("#post-btn");
-  await page.waitForSelector('.entry-card:has-text("For Mom, Dad, Muthu")');
+  await page.waitForSelector('.entry-card:has-text("For Mom, Dad, Muthu")', { state: "attached" });
   assert.match(await page.textContent('.entry-card:has-text("For Mom, Dad, Muthu")'), /❤️/);
   // R7: "Ntorq" (scooter) replaced "Rent".
   assert.match(await page.textContent('.entry-card:has-text("Ntorq")'), /🛵/);
 });
 
 test("R14/R7: the report shows the 🛵 Ntorq expense paid from July salary", { skip }, async () => {
+  await openReport("reserve");
   await page.tap('#report-body .category-card:has-text("Salary")');
   await page.tap('#report-body .category-card:has-text("July 2026")');
   const rows = await page.$$eval("#report-body .report-row", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
   assert.ok(rows.some((r) => r.includes("🛵") && r.includes("Ntorq")), rows.join(" | "));
-  await page.tap("#report-back");
-  await page.tap("#report-back");
+  await screen("");
 });
 
 test("R7/R5: entries saved with a replaced category keep their name and icon and can be edited", { skip }, async () => {
@@ -375,7 +394,8 @@ test("R7/R5: entries saved with a replaced category keep their name and icon and
   });
   assert.equal(res.status(), 201);
   await page.reload();
-  await page.waitForSelector(".entry-card");
+  await page.waitForSelector(".entry-card", { state: "attached" });
+  await screen("entries");
   const card = page.locator('.entry-card:has-text("Rent")').first();
   assert.match(await card.innerText(), /🏠/);
 
@@ -390,4 +410,154 @@ test("R7/R5: entries saved with a replaced category keep their name and icon and
   await page.waitForFunction(() => !document.querySelector("dialog").open);
   const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.category === "Rent");
   assert.equal(saved.amount, 9500);
+  await screen("");
+});
+
+// ---------- Entries screen, reports, budget & plans (R21–R26) ----------
+
+function localToday() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+const visibleCards = () => page.$$eval("#entries .entry-card", (els) => els.map((e) => e.className));
+
+test("R21: the entries list is on its own screen, opened from a button on the home page", { skip }, async () => {
+  await screen("");
+  assert.ok(await page.isHidden("#entries"), "no entries list on the home page");
+  await page.tap("#nav-entries");
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  assert.equal(await page.textContent("#page-title"), "Entries");
+  assert.ok(await page.isVisible("#entries .entry-card"));
+  await page.tap("#nav-back");
+  await page.waitForSelector("#screen-home:not([hidden])");
+  assert.ok(await page.isVisible("#wizard"));
+});
+
+test("R22: quick filter buttons and more filters narrow the entries list", { skip }, async () => {
+  await screen("entries");
+  const all = (await visibleCards()).length;
+  await page.tap('#quick-type .qf[data-type="expense"]');
+  const expenses = await visibleCards();
+  assert.ok(expenses.length > 0 && expenses.length < all);
+  assert.ok(expenses.every((c) => c.includes("expense")));
+  assert.match(await page.textContent("#filter-summary"), /entries · Out ₹/);
+
+  await page.tap("#more-filters summary");
+  await page.selectOption("#f-category", "Ntorq");
+  const ntorq = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.ok(ntorq.length >= 1 && ntorq.every((t) => t.includes("Ntorq")));
+  assert.equal(await page.textContent("#filter-count"), "1");
+
+  await page.selectOption("#f-category", "");
+  await page.fill("#f-search", "muthu");
+  const muthu = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.equal(muthu.length, 1);
+  assert.match(muthu[0], /For Mom, Dad, Muthu/);
+
+  await page.tap('#quick-period .qf[data-period="last-month"]');
+  assert.match(await page.textContent("#empty"), /No entries match/);
+  await page.tap("#f-clear");
+  assert.equal((await visibleCards()).length, all);
+  await screen("");
+});
+
+test("R23: spending report groups expenses by category and opens their entries", { skip }, async () => {
+  await openReport("spending");
+  await page.tap('#report-body .qf[data-period="all"]');
+  const entries = await (await page.request.get(URL_ + "api/entries")).json();
+  const expected = entries.filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
+  const total = await page.textContent("#report-body .spend-total .tile-value");
+  assert.equal(total, "₹" + expected.toLocaleString("en-IN", { minimumFractionDigits: 2 }));
+  const rows = await page.$$eval("#report-body .spend-row", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
+  assert.ok(rows.some((r) => r.includes("Ntorq")) && rows.some((r) => r.includes("For Mom, Dad, Muthu")));
+
+  await page.tap('#report-body .spend-row:has-text("Ntorq")');
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  const shown = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.ok(shown.length >= 1 && shown.every((t) => t.includes("Ntorq")));
+  await page.tap("#f-clear");
+  await screen("");
+});
+
+test("R24: reserve utilisation shows each receipt's use; a receipt shows where it went", { skip }, async () => {
+  await openReport("util-reserve");
+  await page.tap('#report-body .category-card:has-text("Salary")');
+  const rows = await page.$$eval("#report-body .receipt-row", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
+  assert.ok(rows.length >= 2);
+  const july = rows.findIndex((r) => r.includes("1 Jul 2026"));
+  assert.ok(july >= 0, rows.join(" | "));
+  assert.match(rows[july], /Fully used/);
+  await page.locator("#report-body .receipt-row").nth(july).tap();
+  const text = (await page.textContent("#report-body")).replace(/\s+/g, " ");
+  assert.match(text, /Where did Salary of 1 Jul 2026 go\?/);
+  assert.match(text, /Ntorq/);
+  assert.match(text, /Shopping/);
+  await screen("");
+});
+
+test("R25: a monthly budget per category shows spent against budget", { skip }, async () => {
+  await page.tap("#nav-budget");
+  await page.waitForSelector("#screen-budget:not([hidden])");
+  await page.tap("#budget-add");
+  await page.waitForSelector("#budget-dialog[open]");
+  await page.tap('#budget-categories .category-card:has-text("Groceries")');
+  await page.fill("#budget-amount", "5000");
+  await page.tap("#budget-save");
+  await page.waitForFunction(() => !document.getElementById("budget-dialog").open);
+  const row = (await page.textContent('#budget-list .budget-row:has-text("Groceries")')).replace(/\s+/g, " ");
+  assert.match(row, /₹300\.00 of ₹5,000\.00/);
+  assert.match(row, /₹4,700\.00 left/);
+  assert.match(await page.textContent("#budget-summary"), /Spent ₹300\.00 of ₹5,000\.00/);
+});
+
+test("R26: planned cashflows feed the forecast and can be recorded as entries", { skip }, async () => {
+  const today = localToday();
+  const nextMonth1st = (() => {
+    const [y, m] = today.split("-").map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  })();
+
+  // Monthly salary from next month.
+  await page.tap("#plan-add");
+  await page.waitForSelector("#plan-dialog[open]");
+  await page.tap('#plan-dialog .toggle.income');
+  await page.tap('#plan-categories .category-card:has-text("Salary")');
+  await page.fill("#plan-amount", "60000");
+  await page.fill("#plan-date", nextMonth1st);
+  await page.tap('#plan-dialog label:has-text("Every month")');
+  await page.tap("#plan-save");
+  await page.waitForFunction(() => !document.getElementById("plan-dialog").open);
+
+  // One-time Ntorq service due today.
+  await page.tap("#plan-add");
+  await page.tap('#plan-categories .category-card:has-text("Ntorq")');
+  await page.fill("#plan-amount", "1500");
+  await page.fill("#plan-note", "Service");
+  await page.tap("#plan-save");
+  await page.waitForFunction(() => !document.getElementById("plan-dialog").open);
+  assert.equal(await page.locator("#plan-list .plan-item").count(), 2);
+
+  const rows = await page.$$eval("#forecast-table tr", (trs) => trs.map((tr) => [...tr.children].map((c) => c.innerText.trim())));
+  assert.equal(rows.length, 1 + 1 + 6, "header, today, 6 months");
+  const next = rows[3];
+  assert.equal(next[1], "+₹60,000");
+  assert.equal(next[2], "−₹5,000", "Groceries budget");
+
+  // Record the Ntorq plan: it becomes an entry and the one-time plan goes away.
+  const before = (await (await page.request.get(URL_ + "api/entries")).json()).length;
+  await page.tap('#plan-list .plan-item:has-text("Ntorq") .record-btn');
+  await page.waitForFunction(() => document.querySelectorAll("#plan-list .plan-item").length === 1);
+  const after = await (await page.request.get(URL_ + "api/entries")).json();
+  assert.equal(after.length, before + 1);
+  const recorded = after.find((e) => e.description === "Service");
+  assert.deepEqual([recorded.type, recorded.category, recorded.amount, recorded.date], ["expense", "Ntorq", 1500, today]);
+
+  // Record the monthly salary: an entry is added and the plan moves to the following month.
+  await page.tap('#plan-list .plan-item:has-text("Salary") .record-btn');
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Recorded Salary"));
+  const plans = await (await page.request.get(URL_ + "api/plans")).json();
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].nextDate.slice(0, 7) > nextMonth1st.slice(0, 7), true);
+  await screen("");
 });

@@ -7,6 +7,15 @@ import {
   reserveAccountGrid,
   accountBalances,
   transferAllPlan,
+  ACCOUNTS,
+  addMonths,
+  filterEntries,
+  totalsOf,
+  spendingByCategory,
+  reserveReceipts,
+  receiptReport,
+  budgetStatus,
+  cashflowForecast,
 } from "./ledger.js";
 
 const CATEGORIES = {
@@ -82,9 +91,12 @@ const compactCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 let entries = [];
+let budgets = []; // [{ category, amount }]
+let plans = []; // [{ id, type, category, description, amount, nextDate, repeat }]
 
-async function api(method, query = "", body) {
-  const res = await fetch("/api/entries" + query, {
+// `path` is the API endpoint: entries, budgets or plans.
+async function api(method, query = "", body, path = "entries") {
+  const res = await fetch("/api/" + path + query, {
     method,
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
@@ -252,30 +264,54 @@ function describe(entry) {
   };
 }
 
-function render() {
+function entryCard(entry) {
+  const li = document.createElement("li");
+  const card = el("button", "entry-card " + entry.type);
+  card.type = "button";
+  const { title, icon: iconText, meta } = describe(entry);
+  card.setAttribute("aria-label", `${title}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
+
+  const icon = el("span", "type-icon", iconText);
+  icon.setAttribute("aria-hidden", "true");
+  const info = el("div", "entry-info");
+  info.append(el("p", "entry-desc", title), el("p", "entry-date", [...meta, formatDate(entry.date)].filter(Boolean).join(" · ")));
+  const sign = entry.type === "income" ? "+" : entry.type === "expense" ? "−" : "";
+  const amount = el("span", "entry-amount " + entry.type, sign + currency.format(entry.amount));
+
+  card.append(icon, info, amount);
+  card.addEventListener("click", () => openEditor(entry));
+  li.append(card);
+  return li;
+}
+
+function monthHeading(month) {
+  return new Date(month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+// The Entries screen: filtered list, grouped by month.
+function renderEntriesList() {
   list.innerHTML = "";
-
-  for (const entry of entries) {
-    const li = document.createElement("li");
-    const card = el("button", "entry-card " + entry.type);
-    card.type = "button";
-    const { title, icon: iconText, meta } = describe(entry);
-    card.setAttribute("aria-label", `${title}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
-
-    const icon = el("span", "type-icon", iconText);
-    icon.setAttribute("aria-hidden", "true");
-    const info = el("div", "entry-info");
-    info.append(el("p", "entry-desc", title), el("p", "entry-date", [...meta, formatDate(entry.date)].filter(Boolean).join(" · ")));
-    const sign = entry.type === "income" ? "+" : entry.type === "expense" ? "−" : "";
-    const amount = el("span", "entry-amount " + entry.type, sign + currency.format(entry.amount));
-
-    card.append(icon, info, amount);
-    card.addEventListener("click", () => openEditor(entry));
-    li.append(card);
-    list.append(li);
+  const shown = filterEntries(entries, filters, today());
+  let month = null;
+  for (const entry of shown) {
+    if (entry.date.slice(0, 7) !== month) {
+      month = entry.date.slice(0, 7);
+      list.append(el("li", "month-heading", monthHeading(month)));
+    }
+    list.append(entryCard(entry));
   }
+  emptyMsg.hidden = shown.length > 0;
+  emptyMsg.textContent = entries.length ? "No entries match these filters." : "No entries yet.";
+  const t = totalsOf(shown);
+  filterSummary.textContent =
+    `${shown.length} ${shown.length === 1 ? "entry" : "entries"}` +
+    (t.income ? ` · In ${currency.format(t.income)}` : "") +
+    (t.expense ? ` · Out ${currency.format(t.expense)}` : "");
+  renderFilterControls();
+}
 
-  emptyMsg.hidden = entries.length > 0;
+function render() {
+  renderEntriesList();
 
   const income = entries.filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
   const expense = entries.filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
@@ -288,6 +324,7 @@ function render() {
   renderAccounts();
   renderReserves();
   renderReport();
+  renderBudget();
   refreshTransferAll();
 }
 
@@ -307,7 +344,7 @@ function sortEntries() {
 async function loadEntries() {
   showStatus("Loading…", false);
   try {
-    entries = await api("GET");
+    [entries, budgets, plans] = await Promise.all([api("GET"), api("GET", "", null, "budgets"), api("GET", "", null, "plans")]);
     sortEntries();
     appSection.hidden = false;
     showStatus("");
@@ -316,6 +353,104 @@ async function loadEntries() {
     showStatus(err.message);
   }
 }
+
+// ---------- Screens ----------
+
+const SCREENS = { home: "Finance Manager", entries: "Entries", reports: "Reports", budget: "Budget & Plans" };
+const pageTitle = document.getElementById("page-title");
+const navBack = document.getElementById("nav-back");
+
+// The screen comes from the URL hash (#entries, #reports, #budget), so the phone's back button works.
+function showScreen() {
+  const name = location.hash.slice(1);
+  const screen = SCREENS[name] ? name : "home";
+  for (const key of Object.keys(SCREENS)) {
+    document.getElementById("screen-" + key).hidden = key !== screen;
+  }
+  pageTitle.textContent = SCREENS[screen];
+  navBack.hidden = screen === "home";
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener("hashchange", showScreen);
+navBack.addEventListener("click", (event) => {
+  event.preventDefault();
+  location.hash = "";
+});
+
+function goTo(screen) {
+  location.hash = screen === "home" ? "" : screen;
+}
+
+// ---------- Entries screen filters ----------
+
+const filterSummary = document.getElementById("filter-summary");
+const EMPTY_FILTERS = { period: "all", type: "", category: "", reserve: "", account: "", from: "", to: "", search: "" };
+const filters = { ...EMPTY_FILTERS };
+const filterInputs = {
+  category: document.getElementById("f-category"),
+  reserve: document.getElementById("f-reserve"),
+  account: document.getElementById("f-account"),
+  from: document.getElementById("f-from"),
+  to: document.getElementById("f-to"),
+  search: document.getElementById("f-search"),
+};
+
+function fillSelect(select, allLabel, values, selected) {
+  const options = [["", allLabel], ...values.map((v) => [v, v])];
+  const key = JSON.stringify(options);
+  if (select.dataset.options !== key) {
+    select.innerHTML = "";
+    for (const [value, label] of options) {
+      const option = el("option", "", label);
+      option.value = value;
+      select.append(option);
+    }
+    select.dataset.options = key;
+  }
+  select.value = selected;
+}
+
+function renderFilterControls() {
+  const used = [...new Set(entries.map((e) => e.category).filter(Boolean))];
+  const known = [...CATEGORIES.income, ...CATEGORIES.expense].map((c) => c.name);
+  const categories = [...new Set([...known, ...used])];
+  fillSelect(filterInputs.category, "All categories", categories, filters.category);
+  fillSelect(filterInputs.reserve, "All reserves", computeReserves().map((r) => r.name), filters.reserve);
+  fillSelect(filterInputs.account, "All accounts", ACCOUNTS, filters.account);
+  for (const key of ["from", "to", "search"]) {
+    if (filterInputs[key].value !== filters[key]) filterInputs[key].value = filters[key];
+  }
+  document.querySelectorAll("#quick-period .qf").forEach((b) => b.classList.toggle("active", b.dataset.period === filters.period));
+  document.querySelectorAll("#quick-type .qf").forEach((b) => b.classList.toggle("active", b.dataset.type === filters.type));
+  const extra = ["category", "reserve", "account", "from", "to", "search"].filter((k) => filters[k]).length;
+  const count = document.getElementById("filter-count");
+  count.hidden = extra === 0;
+  count.textContent = String(extra);
+}
+
+function setFilters(changes) {
+  Object.assign(filters, changes);
+  renderEntriesList();
+}
+
+// Opens the Entries screen with only the given filters applied.
+function showEntries(changes) {
+  Object.assign(filters, EMPTY_FILTERS, changes);
+  renderEntriesList();
+  goTo("entries");
+}
+
+document.querySelectorAll("#quick-period .qf").forEach((b) =>
+  b.addEventListener("click", () => setFilters({ period: b.dataset.period }))
+);
+document.querySelectorAll("#quick-type .qf").forEach((b) =>
+  b.addEventListener("click", () => setFilters({ type: b.dataset.type }))
+);
+for (const [key, input] of Object.entries(filterInputs)) {
+  input.addEventListener(key === "search" ? "input" : "change", () => setFilters({ [key]: input.value }));
+}
+document.getElementById("f-clear").addEventListener("click", () => setFilters({ ...EMPTY_FILTERS }));
 
 // ---------- Add entry: step-by-step cards ----------
 
@@ -933,7 +1068,7 @@ editDelete.addEventListener("click", async () => {
 const reportBody = document.getElementById("report-body");
 const reportTitle = document.getElementById("report-title");
 const reportBack = document.getElementById("report-back");
-const report = { stage: "reserve", reserve: null, month: null };
+const report = { stage: "menu", reserve: null, month: null, lotId: null, period: "this-month" };
 
 function monthLabel(month) {
   return new Date(month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -948,91 +1083,226 @@ function showReportStage(stage) {
   renderReport();
 }
 
+const REPORT_BACK = {
+  spending: "menu",
+  grid: "menu",
+  "util-reserve": "menu",
+  receipts: "util-reserve",
+  receipt: "receipts",
+  reserve: "menu",
+  month: "reserve",
+  view: "month",
+};
+
 function renderReport() {
   reportBody.innerHTML = "";
-  reportBack.hidden = report.stage === "reserve";
+  reportBack.hidden = report.stage === "menu";
+  const stages = {
+    menu: renderReportMenu,
+    spending: renderSpending,
+    grid: () => {
+      reportTitle.textContent = "Reserves × Accounts";
+      renderGrid();
+    },
+    "util-reserve": () => renderReservePick("Reserve utilisation", "Pick a reserve to see how its receipts were used.", "receipts"),
+    receipts: renderReceipts,
+    receipt: renderReceipt,
+    reserve: () => renderReservePick("A month's money", "What happened to my money? Pick a reserve.", "month"),
+    month: renderMonthPick,
+    view: renderMonthView,
+  };
+  (stages[report.stage] || renderReportMenu)();
+}
 
-  if (report.stage === "reserve") {
-    reportTitle.textContent = "Reports";
-    const gridCard = el("button", "type-card wide grid-card");
-    gridCard.type = "button";
-    const gridIcon = el("span", "type-icon", "▦");
-    gridIcon.setAttribute("aria-hidden", "true");
-    const gridText = el("span", "type-text");
-    gridText.append(el("span", "type-name", "Reserves × Accounts"), el("span", "type-sub", "Where each reserve's money is kept"));
-    gridCard.append(gridIcon, gridText);
-    gridCard.addEventListener("click", () => showReportStage("grid"));
-    reportBody.append(gridCard);
-    reportBody.append(el("p", "step-hint report-hint", "What happened to my money? Pick a reserve."));
-    const grid = el("div", "category-grid");
-    for (const r of computeReserves()) {
-      if (!reserveMonths(entries, r.name).length) continue;
-      const btn = el("button", "category-card report-pick");
-      btn.type = "button";
-      btn.append(el("span", "category-icon", reserveIcon(r.name)), el("span", "category-name", r.name));
-      btn.addEventListener("click", () => {
-        report.reserve = r.name;
-        showReportStage("month");
-      });
-      grid.append(btn);
-    }
-    if (!grid.children.length) reportBody.append(el("p", "empty", "Add some income to see reports."));
-    else reportBody.append(grid);
+function reportMenuCard(icon, name, sub, stage) {
+  const card = el("button", "type-card wide report-card");
+  card.type = "button";
+  card.dataset.report = stage;
+  const i = el("span", "type-icon", icon);
+  i.setAttribute("aria-hidden", "true");
+  const t = el("span", "type-text");
+  t.append(el("span", "type-name", name), el("span", "type-sub", sub));
+  card.append(i, t);
+  card.addEventListener("click", () => showReportStage(stage));
+  return card;
+}
+
+function renderReportMenu() {
+  report.stage = "menu";
+  reportBack.hidden = true;
+  reportTitle.textContent = "Choose a report";
+  reportBody.append(
+    reportMenuCard("🧾", "Spending by category", "Where your money goes, by classification", "spending"),
+    reportMenuCard("🪣", "Reserve utilisation", "Every receipt in a reserve: how much is used and left", "util-reserve"),
+    reportMenuCard("📅", "A month's money", "What happened to Salary of August?", "reserve"),
+    reportMenuCard("▦", "Reserves × Accounts", "Where each reserve's money is kept", "grid")
+  );
+}
+
+function renderReservePick(title, hint, next) {
+  reportTitle.textContent = title;
+  reportBody.append(el("p", "step-hint", hint));
+  const grid = el("div", "category-grid");
+  for (const r of computeReserves()) {
+    if (!reserveMonths(entries, r.name).length) continue;
+    const btn = el("button", "category-card report-pick");
+    btn.type = "button";
+    btn.append(
+      el("span", "category-icon", reserveIcon(r.name)),
+      el("span", "category-name", r.name),
+      el("span", "category-sub", currency.format(r.balance))
+    );
+    btn.addEventListener("click", () => {
+      report.reserve = r.name;
+      showReportStage(next);
+    });
+    grid.append(btn);
+  }
+  if (!grid.children.length) reportBody.append(el("p", "empty", "Add some income to see reports."));
+  else reportBody.append(grid);
+}
+
+const SPENDING_PERIODS = [
+  ["this-month", "This month"],
+  ["last-month", "Last month"],
+  ["this-year", "This year"],
+  ["all", "All time"],
+];
+
+function usageBar(share, over = false) {
+  const bar = el("div", "usage-bar small");
+  const fill = el("span", "usage-fill" + (over ? " over" : ""));
+  fill.style.width = Math.min(100, Math.max(0, share * 100)) + "%";
+  bar.append(fill);
+  return bar;
+}
+
+function renderSpending() {
+  reportTitle.textContent = "Spending by category";
+  const chips = el("div", "quick-filters");
+  for (const [period, label] of SPENDING_PERIODS) {
+    const b = el("button", "qf" + (report.period === period ? " active" : ""), label);
+    b.type = "button";
+    b.dataset.period = period;
+    b.addEventListener("click", () => {
+      report.period = period;
+      renderReport();
+    });
+    chips.append(b);
+  }
+  reportBody.append(chips);
+
+  const { total, rows } = spendingByCategory(entries, { period: report.period }, today());
+  const budgetOf = new Map(budgets.map((b) => [b.category, b.amount]));
+  const tile = el("div", "report-tile spend-total");
+  tile.append(el("span", "label", "Total spent"), el("span", "tile-value expense", currency.format(total)));
+  reportBody.append(tile);
+  if (!rows.length) {
+    reportBody.append(el("p", "empty", "No expenses in this period."));
     return;
   }
-
-  if (report.stage === "grid") {
-    reportTitle.textContent = "Reserves × Accounts";
-    renderGrid();
-    return;
+  reportBody.append(el("p", "step-hint", "Tap a category to see its entries."));
+  const listEl = el("ul", "report-list");
+  for (const row of rows) {
+    const li = el("li");
+    const btn = el("button", "report-row spend-row");
+    btn.type = "button";
+    const info = el("div", "entry-info");
+    const pct = row.share > 0 && row.share < 0.005 ? "<1%" : Math.round(row.share * 100) + "%";
+    const details = [`${row.count} ${row.count === 1 ? "entry" : "entries"}`, pct];
+    const budget = budgetOf.get(row.category);
+    if (budget && report.period === "this-month") details.push(`budget ${currency.format(budget)}`);
+    info.append(el("p", "entry-desc", row.category), el("p", "entry-date", details.join(" · ")), usageBar(row.share));
+    btn.append(el("span", "row-icon", categoryIcon("expense", row.category)), info, el("span", "entry-amount expense", currency.format(row.amount)));
+    btn.addEventListener("click", () => showEntries({ period: report.period, type: "expense", category: row.category }));
+    li.append(btn);
+    listEl.append(li);
   }
+  reportBody.append(listEl);
+}
 
-  if (report.stage === "month") {
-    reportTitle.textContent = report.reserve;
-    reportBody.append(el("p", "step-hint", "Which month's money?"));
-    const grid = el("div", "category-grid");
-    for (const m of reserveMonths(entries, report.reserve)) {
-      const btn = el("button", "category-card report-pick");
-      btn.type = "button";
-      btn.append(
-        el("span", "category-name month-name", monthLabel(m.month)),
-        el("span", "category-sub", currency.format(m.received) + " in"),
-        el("span", "month-left" + (m.remaining > 0 ? "" : " done"), m.remaining > 0 ? currency.format(m.remaining) + " left" : "Fully used")
-      );
-      btn.addEventListener("click", () => {
-        report.month = m.month;
-        showReportStage("view");
-      });
-      grid.append(btn);
-    }
-    if (!grid.children.length) {
-      report.stage = "reserve";
-      return renderReport();
-    }
-    reportBody.append(grid);
-    return;
+function renderReceipts() {
+  const receipts = reserveReceipts(entries, report.reserve);
+  if (!receipts.length) return showReportStage("util-reserve");
+  reportTitle.textContent = report.reserve;
+  const received = receipts.reduce((s, r) => s + r.amount, 0);
+  const used = receipts.reduce((s, r) => s + r.used, 0);
+  reportBody.append(summaryTiles(received, used, received - used));
+  reportBody.append(el("p", "step-hint", "Every receipt in this reserve, newest first. The oldest money is used first. Tap one to see where it went."));
+  const listEl = el("ul", "report-list");
+  for (const r of receipts) {
+    const li = el("li");
+    const btn = el("button", "report-row receipt-row");
+    btn.type = "button";
+    const info = el("div", "entry-info");
+    const status = r.remaining <= 0.004 ? "Fully used" : r.used > 0 ? `${currency.format(r.used)} used · ${currency.format(r.remaining)} left` : "Not used yet";
+    info.append(el("p", "entry-desc", `${r.label} · ${formatDate(r.date)}`), el("p", "entry-date", status), usageBar(r.amount ? r.used / r.amount : 0));
+    const icon = r.lot.entry.type === "transfer" ? "⇄" : categoryIcon("income", r.lot.entry.category);
+    btn.append(el("span", "row-icon", icon), info, el("span", "entry-amount income", "+" + currency.format(r.amount)));
+    btn.addEventListener("click", () => {
+      report.lotId = r.id;
+      showReportStage("receipt");
+    });
+    li.append(btn);
+    listEl.append(li);
   }
+  reportBody.append(listEl);
+}
 
-  // Report view
+function renderReceipt() {
+  const r = receiptReport(entries, report.reserve, report.lotId);
+  if (!r) return showReportStage("receipts");
+  reportTitle.textContent = "Receipt";
+  renderUsage(r, `Where did ${r.lot.label} of ${formatDate(r.lot.date)} go?`);
+}
+
+function renderMonthPick() {
+  reportTitle.textContent = report.reserve;
+  reportBody.append(el("p", "step-hint", "Which month's money?"));
+  const grid = el("div", "category-grid");
+  for (const m of reserveMonths(entries, report.reserve)) {
+    const btn = el("button", "category-card report-pick");
+    btn.type = "button";
+    btn.append(
+      el("span", "category-name month-name", monthLabel(m.month)),
+      el("span", "category-sub", currency.format(m.received) + " in"),
+      el("span", "month-left" + (m.remaining > 0 ? "" : " done"), m.remaining > 0 ? currency.format(m.remaining) + " left" : "Fully used")
+    );
+    btn.addEventListener("click", () => {
+      report.month = m.month;
+      showReportStage("view");
+    });
+    grid.append(btn);
+  }
+  if (!grid.children.length) return showReportStage("reserve");
+  reportBody.append(grid);
+}
+
+function renderMonthView() {
   const r = reserveReport(entries, report.reserve, report.month);
-  if (!r.lots.length) {
-    report.stage = "month";
-    return renderReport();
-  }
+  if (!r.lots.length) return showReportStage("month");
   reportTitle.textContent = "Report";
-  reportBody.append(el("h3", "report-heading", "What happened to " + moneyName(r.reserve, r.month) + "?"));
+  renderUsage(r, "What happened to " + moneyName(r.reserve, r.month) + "?");
+}
 
+function summaryTiles(received, used, left) {
   const tiles = el("div", "report-tiles");
   for (const [label, value, cls] of [
-    ["Received", r.received, "income"],
-    ["Used", r.used, "expense"],
-    ["Left", r.remaining, ""],
+    ["Received", received, "income"],
+    ["Used", used, "expense"],
+    ["Left", left, ""],
   ]) {
     const tile = el("div", "report-tile");
     tile.append(el("span", "label", label), el("span", "tile-value " + cls, currency.format(value)));
     tiles.append(tile);
   }
-  reportBody.append(tiles);
+  return tiles;
+}
+
+// Received / used / left, the story, money in and where it went, for a month or a single receipt.
+function renderUsage(r, heading) {
+  reportBody.append(el("h3", "report-heading", heading));
+  reportBody.append(summaryTiles(r.received, r.used, r.remaining));
 
   const bar = el("div", "usage-bar");
   const fill = el("span", "usage-fill");
@@ -1155,8 +1425,291 @@ function renderGrid() {
   );
 }
 
-reportBack.addEventListener("click", () => showReportStage(report.stage === "view" ? "month" : "reserve"));
+reportBack.addEventListener("click", () => showReportStage(REPORT_BACK[report.stage] || "menu"));
+
+// ---------- Budget & planned cashflows ----------
+
+const budgetSummary = document.getElementById("budget-summary");
+const budgetList = document.getElementById("budget-list");
+const planList = document.getElementById("plan-list");
+const forecastTable = document.getElementById("forecast-table");
+
+function renderBudget() {
+  // This month's budget per category.
+  const status = budgetStatus(entries, budgets, today());
+  budgetList.innerHTML = "";
+  if (!status.rows.length) {
+    budgetSummary.textContent = "No budgets yet. Tap + Set budget to give a category a monthly limit.";
+  } else {
+    const left = status.left >= 0 ? `${currency.format(status.left)} left` : `${currency.format(-status.left)} over`;
+    budgetSummary.textContent = `Spent ${currency.format(status.spent)} of ${currency.format(status.budget)} · ${left}`;
+  }
+  for (const row of status.rows) {
+    const li = el("li");
+    const btn = el("button", "report-row budget-row");
+    btn.type = "button";
+    const over = row.left < 0;
+    const info = el("div", "entry-info");
+    info.append(
+      el("p", "entry-desc", row.category),
+      el("p", "entry-date", `${currency.format(row.spent)} of ${currency.format(row.budget)}`),
+      usageBar(row.share, over)
+    );
+    const leftText = over ? `${currency.format(-row.left)} over` : `${currency.format(row.left)} left`;
+    btn.append(el("span", "row-icon", categoryIcon("expense", row.category)), info, el("span", "entry-amount " + (over ? "expense" : "income"), leftText));
+    btn.addEventListener("click", () => openBudget(row.category));
+    li.append(btn);
+    budgetList.append(li);
+  }
+
+  // Planned cashflows.
+  planList.innerHTML = "";
+  const sorted = [...plans].sort((a, b) => a.nextDate.localeCompare(b.nextDate) || Number(a.id) - Number(b.id));
+  if (!sorted.length) planList.append(el("li", "empty", "Nothing planned yet. Tap + Plan to add expected income or expenses."));
+  for (const plan of sorted) {
+    const li = el("li", "plan-item");
+    const btn = el("button", "report-row plan-row");
+    btn.type = "button";
+    const info = el("div", "entry-info");
+    const due = plan.nextDate <= today() ? "due " + (plan.nextDate < today() ? formatDate(plan.nextDate) : "today") : formatDate(plan.nextDate);
+    const meta = [due, plan.repeat === "monthly" ? "every month" : "one time", plan.description].filter(Boolean);
+    info.append(el("p", "entry-desc", plan.category), el("p", "entry-date" + (plan.nextDate <= today() ? " due" : ""), meta.join(" · ")));
+    const sign = plan.type === "income" ? "+" : "−";
+    btn.append(el("span", "row-icon", categoryIcon(plan.type, plan.category)), info, el("span", "entry-amount " + plan.type, sign + currency.format(plan.amount)));
+    btn.addEventListener("click", () => openPlan(plan));
+    const record = el("button", "record-btn", "✓ Record");
+    record.type = "button";
+    record.setAttribute("aria-label", `Record ${plan.category} ${currency.format(plan.amount)} as an entry`);
+    record.addEventListener("click", () => recordPlan(plan));
+    li.append(btn, record);
+    planList.append(li);
+  }
+
+  // Forecast.
+  const forecast = cashflowForecast(entries, budgets, plans, today(), 6);
+  forecastTable.innerHTML = "";
+  const head = el("tr");
+  for (const h of ["Month", "In", "Out", "Balance"]) head.append(el("th", h === "Month" ? "grid-corner" : "", h));
+  const thead = el("thead");
+  thead.append(head);
+  const tbody = el("tbody");
+  const startRow = el("tr", "forecast-start");
+  startRow.append(el("th", "grid-reserve", "Today"), el("td", "", ""), el("td", "", ""), el("td", "grid-total", compactCurrency.format(forecast.start)));
+  tbody.append(startRow);
+  for (const row of forecast.rows) {
+    const tr = el("tr");
+    const label = new Date(row.month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    tr.append(
+      el("th", "grid-reserve", label),
+      el("td", "income", row.income ? "+" + compactCurrency.format(row.income) : "–"),
+      el("td", "expense", row.expense ? "−" + compactCurrency.format(row.expense) : "–"),
+      el("td", "grid-total" + (row.balance < 0 ? " expense" : ""), compactCurrency.format(row.balance))
+    );
+    tbody.append(tr);
+  }
+  forecastTable.append(thead, tbody);
+}
+
+// Budget sheet
+const budgetDialog = document.getElementById("budget-dialog");
+const budgetForm = document.getElementById("budget-form");
+const budgetCategories = document.getElementById("budget-categories");
+const budgetAmount = document.getElementById("budget-amount");
+const budgetRemove = document.getElementById("budget-remove");
+let budgetCategory = "";
+
+function renderCategoryChoice(container, type, selected, onPick) {
+  container.innerHTML = "";
+  const cards = [...CATEGORIES[type]];
+  if (selected && !cards.some((c) => c.name === selected)) cards.unshift({ name: selected, icon: categoryIcon(type, selected) });
+  for (const cat of cards) {
+    const btn = el("button", "category-card " + type);
+    btn.type = "button";
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", String(cat.name === selected));
+    const icon = el("span", "category-icon", cat.icon);
+    icon.setAttribute("aria-hidden", "true");
+    btn.append(icon, el("span", "category-name", cat.name));
+    btn.addEventListener("click", () => onPick(cat.name));
+    container.append(btn);
+  }
+}
+
+function renderBudgetSheet() {
+  renderCategoryChoice(budgetCategories, "expense", budgetCategory, (name) => {
+    budgetCategory = name;
+    const existing = budgets.find((b) => b.category === name);
+    if (existing) budgetAmount.value = existing.amount;
+    renderBudgetSheet();
+  });
+  budgetRemove.hidden = !budgets.some((b) => b.category === budgetCategory);
+}
+
+function openBudget(category = "") {
+  budgetCategory = category;
+  const existing = budgets.find((b) => b.category === category);
+  budgetAmount.value = existing ? existing.amount : "";
+  renderBudgetSheet();
+  budgetDialog.showModal();
+}
+
+document.getElementById("budget-add").addEventListener("click", () => openBudget(""));
+document.getElementById("budget-close").addEventListener("click", () => budgetDialog.close());
+budgetDialog.addEventListener("click", (event) => {
+  if (event.target === budgetDialog) budgetDialog.close();
+});
+
+budgetForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const amount = parseAmount(budgetAmount.value);
+  if (!budgetCategory) return alert("Choose a category");
+  if (!(amount > 0)) return;
+  try {
+    const saved = await api("PUT", "", { category: budgetCategory, amount }, "budgets");
+    budgets = [...budgets.filter((b) => b.category !== saved.category), saved];
+    budgetDialog.close();
+    showStatus("");
+    render();
+  } catch (err) {
+    budgetDialog.close();
+    showStatus(err.message);
+  }
+});
+
+budgetRemove.addEventListener("click", async () => {
+  if (!confirm(`Remove the ${budgetCategory} budget?`)) return;
+  try {
+    await api("DELETE", "?category=" + encodeURIComponent(budgetCategory), null, "budgets");
+    budgets = budgets.filter((b) => b.category !== budgetCategory);
+    budgetDialog.close();
+    render();
+  } catch (err) {
+    budgetDialog.close();
+    showStatus(err.message);
+  }
+});
+
+// Plan sheet
+const planDialog = document.getElementById("plan-dialog");
+const planForm = document.getElementById("plan-form");
+const planCategories = document.getElementById("plan-categories");
+const planAmount = document.getElementById("plan-amount");
+const planDate = document.getElementById("plan-date");
+const planNote = document.getElementById("plan-note");
+const planDelete = document.getElementById("plan-delete");
+const planDraft = { id: null, category: "" };
+
+function planType() {
+  return planForm.elements["plan-type"].value;
+}
+
+function renderPlanSheet() {
+  renderCategoryChoice(planCategories, planType(), planDraft.category, (name) => {
+    planDraft.category = name;
+    renderPlanSheet();
+  });
+}
+
+function openPlan(plan = null) {
+  planDraft.id = plan ? plan.id : null;
+  planDraft.category = plan ? plan.category : "";
+  planForm.elements["plan-type"].value = plan ? plan.type : "expense";
+  planForm.elements["plan-repeat"].value = plan ? plan.repeat : "none";
+  planAmount.value = plan ? plan.amount : "";
+  planDate.value = plan ? plan.nextDate : today();
+  planNote.value = plan ? plan.description : "";
+  document.getElementById("plan-title").textContent = plan ? "Edit plan" : "Plan a cashflow";
+  planDelete.hidden = !plan;
+  renderPlanSheet();
+  planDialog.showModal();
+}
+
+planForm.querySelectorAll("input[name=plan-type]").forEach((radio) =>
+  radio.addEventListener("change", () => {
+    if (!CATEGORIES[planType()].some((c) => c.name === planDraft.category)) planDraft.category = "";
+    renderPlanSheet();
+  })
+);
+document.getElementById("plan-add").addEventListener("click", () => openPlan());
+document.getElementById("plan-close").addEventListener("click", () => planDialog.close());
+planDialog.addEventListener("click", (event) => {
+  if (event.target === planDialog) planDialog.close();
+});
+
+planForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const amount = parseAmount(planAmount.value);
+  if (!planDraft.category) return alert("Choose a category");
+  if (!(amount > 0) || !planDate.value) return;
+  const body = {
+    type: planType(),
+    category: planDraft.category,
+    amount,
+    nextDate: planDate.value,
+    repeat: planForm.elements["plan-repeat"].value,
+    description: planNote.value.trim(),
+  };
+  try {
+    const saved = planDraft.id
+      ? await api("PUT", "?id=" + encodeURIComponent(planDraft.id), body, "plans")
+      : await api("POST", "", body, "plans");
+    plans = [...plans.filter((p) => p.id !== saved.id), saved];
+    planDialog.close();
+    showStatus("");
+    render();
+  } catch (err) {
+    planDialog.close();
+    showStatus(err.message);
+  }
+});
+
+planDelete.addEventListener("click", async () => {
+  if (!confirm("Delete this plan?")) return;
+  try {
+    await api("DELETE", "?id=" + encodeURIComponent(planDraft.id), null, "plans");
+    plans = plans.filter((p) => p.id !== planDraft.id);
+    planDialog.close();
+    render();
+  } catch (err) {
+    planDialog.close();
+    showStatus(err.message);
+  }
+});
+
+// A planned cashflow happened: add it as an entry today, then move a monthly plan to next month
+// (a one-time plan is removed). It uses the usual defaults: income into its own reserve,
+// expenses from General Reserve, Super Money account; edit the entry afterwards to change them.
+async function recordPlan(plan) {
+  if (!confirm(`Record ${plan.category} ${currency.format(plan.amount)} as ${plan.type} today?`)) return;
+  try {
+    const created = await api("POST", "", {
+      type: plan.type,
+      category: plan.category,
+      description: plan.description,
+      amount: plan.amount,
+      date: today(),
+      reserve: plan.type === "income" ? plan.category : GENERAL,
+      account: DEFAULT_ACCOUNT,
+    });
+    entries.push(created);
+    sortEntries();
+    if (plan.repeat === "monthly") {
+      const next = await api("PUT", "?id=" + encodeURIComponent(plan.id), { ...plan, nextDate: addMonths(plan.nextDate, 1) }, "plans");
+      plans = plans.map((p) => (p.id === next.id ? next : p));
+    } else {
+      await api("DELETE", "?id=" + encodeURIComponent(plan.id), null, "plans");
+      plans = plans.filter((p) => p.id !== plan.id);
+    }
+    showStatus(`Recorded ${plan.category} ${currency.format(plan.amount)}.`, false);
+    render();
+  } catch (err) {
+    const message = err.message;
+    await loadEntries();
+    showStatus(message);
+  }
+}
 
 dateInput.value = today();
 goToStage("type");
+showScreen();
 loadEntries();

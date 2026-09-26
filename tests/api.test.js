@@ -8,7 +8,7 @@ let pool;
 
 before(async () => {
   if (skip) return;
-  await raw("DROP TABLE IF EXISTS entries");
+  await raw("DROP TABLE IF EXISTS entries, budgets, plans");
   handler = (await import("../api/entries.js")).default;
   pool = (await import("../lib/db.js")).getPool();
 });

@@ -1,24 +1,5 @@
 import { query, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT, ACCOUNTS } from "../lib/db.js";
-
-function send(res, status, data) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
-  res.setHeader("Cache-Control", "no-store");
-  res.end(JSON.stringify(data));
-}
-
-async function readBody(req) {
-  if (req.body !== undefined) {
-    return typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-  }
-  let raw = "";
-  for await (const chunk of req) raw += chunk;
-  return raw ? JSON.parse(raw) : {};
-}
-
-function text(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
+import { send, readBody, text } from "../lib/http.js";
 
 function validate(body) {
   const type = body.type;

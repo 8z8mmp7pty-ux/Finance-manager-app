@@ -9,7 +9,7 @@ before(async () => {
   if (skip) return;
   // The very first schema (before categories and reserves existed).
   await raw(`
-    DROP TABLE IF EXISTS entries;
+    DROP TABLE IF EXISTS entries, budgets, plans;
     CREATE TABLE entries (
       id BIGSERIAL PRIMARY KEY,
       type TEXT NOT NULL CHECK (type IN ('income', 'expense')),

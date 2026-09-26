@@ -9,7 +9,7 @@ let pool;
 before(async () => {
   if (skip) return;
   await raw(`
-    DROP TABLE IF EXISTS entries;
+    DROP TABLE IF EXISTS entries, budgets, plans;
     CREATE TABLE entries (
       id          BIGSERIAL PRIMARY KEY,
       type        TEXT NOT NULL CHECK (type IN ('income', 'expense', 'transfer')),
