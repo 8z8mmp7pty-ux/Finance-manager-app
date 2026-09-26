@@ -1,4 +1,4 @@
-import { query } from "../lib/db.js";
+import { query, DatabaseConfigError } from "../lib/db.js";
 
 function send(res, status, data) {
   res.statusCode = status;
@@ -93,6 +93,9 @@ export default async function handler(req, res) {
     return send(res, 405, { error: "Method not allowed" });
   } catch (err) {
     console.error(err);
-    return send(res, 500, { error: "Database error" });
+    if (err instanceof DatabaseConfigError) {
+      return send(res, 500, { error: err.message });
+    }
+    return send(res, 500, { error: "Database error: " + (err.message || err.code || "unknown error") });
   }
 }

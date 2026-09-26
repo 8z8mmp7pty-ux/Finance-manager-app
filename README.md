@@ -20,7 +20,7 @@ dev-server.js    Local development server
 
 | Variable       | Description                                              |
 | -------------- | -------------------------------------------------------- |
-| `DATABASE_URL` | PostgreSQL connection string (`POSTGRES_URL` also works) |
+| `DATABASE_URL` | PostgreSQL connection string (`POSTGRES_URL` or a prefixed name like `STORAGE_DATABASE_URL` also works) |
 
 ## Deploy to Vercel
 
