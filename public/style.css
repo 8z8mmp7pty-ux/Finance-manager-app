@@ -42,7 +42,7 @@ body {
   background: var(--bg);
   color: var(--text);
 }
-.container { max-width: 560px; margin: 0 auto; padding: 24px 16px 40px; }
+.container { max-width: 560px; margin: 0 auto; padding: 24px 16px 96px; } /* room for the + button */
 h1 { font-size: 1.6rem; margin: 0 0 16px; }
 h2 { font-size: 1.1rem; margin: 0 0 12px; }
 .card, .balance-card {
@@ -602,3 +602,41 @@ li:last-child > button.report-row { border-bottom: none; }
 .calc-title { margin-bottom: 2px; }
 .calc-sub { margin-bottom: 12px; }
 .calc-heading { font-size: 0.95rem; margin: 18px 0 2px; }
+
+/* ---------- Add Entry: + button, popup and confirmation ---------- */
+.add-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  z-index: 20;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 2rem;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.add-fab[hidden] { display: none; }
+@media (prefers-color-scheme: dark) { .add-fab { color: #111827; } }
+dialog.add-sheet { padding: 0; }
+.add-sheet .wizard { margin: 0; border: none; box-shadow: none; background: transparent; }
+.add-status { margin: 4px 0 8px; }
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 84px;
+  bottom: calc(26px + env(safe-area-inset-bottom));
+  z-index: 20;
+  max-width: 480px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  text-align: left;
+}
+.add-sheet:focus { outline: none; }

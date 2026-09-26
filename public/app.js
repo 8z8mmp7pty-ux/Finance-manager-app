@@ -124,9 +124,14 @@ async function api(method, query = "", body, path = "entries") {
 }
 
 function showStatus(message, isError = true) {
-  statusEl.textContent = message || "";
-  statusEl.classList.toggle("info", !isError);
-  statusEl.hidden = !message;
+  // While the Add Entry popup is open, its messages show inside it (the page behind is covered).
+  const addStatus = document.getElementById("add-status");
+  const target = document.getElementById("add-dialog").open ? addStatus : statusEl;
+  for (const node of [statusEl, addStatus]) {
+    node.textContent = node === target ? message || "" : "";
+    node.classList.toggle("info", !isError);
+    node.hidden = !node.textContent;
+  }
 }
 
 function today() {
@@ -363,6 +368,11 @@ async function loadEntries() {
     appSection.hidden = false;
     showStatus("");
     render();
+    if (addFab.hidden) {
+      // First load: the + button appears and the Add Entry popup opens straight away.
+      addFab.hidden = false;
+      openAdd();
+    }
   } catch (err) {
     showStatus(err.message);
   }
@@ -511,6 +521,8 @@ const noteInput = document.getElementById("note");
 const dateInput = document.getElementById("date");
 const postBtn = document.getElementById("post-btn");
 const postedMsg = document.getElementById("posted");
+const addDialog = document.getElementById("add-dialog");
+const addFab = document.getElementById("add-fab");
 const accountGroup = document.getElementById("account-group");
 const accountChips = document.getElementById("account-chips");
 const payFrom = document.getElementById("pay-from");
@@ -733,18 +745,63 @@ function startFlow(flow) {
 }
 
 function startTransferFrom(name) {
+  openAdd();
   Object.assign(draft, { flow: "transfer", from: name, to: null, account: DEFAULT_ACCOUNT });
-  postedMsg.hidden = true;
   goToStage("to");
-  wizard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function startContraFrom(name) {
+  openAdd();
   Object.assign(draft, { flow: "contra", fromAccount: name, toAccount: null, reserve: GENERAL });
-  postedMsg.hidden = true;
   goToStage("toAccount");
-  wizard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+// ---------- Add Entry popup ----------
+
+// Opens the popup at the first step with a fresh entry.
+function openAdd() {
+  postedMsg.hidden = true;
+  if (!addDialog.open) addDialog.showModal();
+  addDialog.focus(); // not the ✕ button (no focus ring on open)
+  resetWizard();
+}
+
+function closeAdd() {
+  if (addDialog.open) addDialog.close();
+}
+
+// An entry is ready to post once its amount is typed on the last step.
+function entryReady() {
+  return !amountForm.hidden && parseAmount(amountInput.value) > 0;
+}
+
+addFab.addEventListener("click", openAdd);
+document.getElementById("add-close").addEventListener("click", closeAdd);
+addDialog.addEventListener("close", () => {
+  document.getElementById("add-status").hidden = true;
+});
+
+// A tap outside the popup closes it, or posts the entry first if one is ready (the popup stays
+// open if posting fails or is cancelled, so the message can be seen).
+let postingFromOutside = false;
+addDialog.addEventListener("click", async (event) => {
+  if (event.target !== addDialog) return;
+  const r = addDialog.getBoundingClientRect();
+  const inside = event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+  if (inside || postingFromOutside) return;
+  if (!entryReady()) return closeAdd();
+  postingFromOutside = true;
+  try {
+    await postDraft();
+  } finally {
+    postingFromOutside = false;
+  }
+});
+
+// Opening the app again (coming back to it) also opens the popup, unless a sheet is already open.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !appSection.hidden && !document.querySelector("dialog[open]")) openAdd();
+});
 
 function resetWizard() {
   amountInput.value = "";
@@ -790,10 +847,15 @@ amountInput.addEventListener("input", () => {
   }
 });
 
-amountForm.addEventListener("submit", async (event) => {
+amountForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  postDraft();
+});
+
+// Posts the entry being added. True when it was saved (the popup then closes).
+async function postDraft() {
   const amount = parseAmount(amountInput.value);
-  if (!(amount > 0) || !draft.flow) return;
+  if (!(amount > 0) || !draft.flow) return false;
 
   if (draft.flow === "transfer" && draft.transferAll) {
     return postTransferAll();
@@ -802,17 +864,17 @@ amountForm.addEventListener("submit", async (event) => {
   let body;
   if (draft.flow === "transfer" || draft.flow === "contra") {
     const isTransfer = draft.flow === "transfer";
-    if (isTransfer ? !draft.from || !draft.to : !draft.fromAccount || !draft.toAccount) return;
+    if (isTransfer ? !draft.from || !draft.to : !draft.fromAccount || !draft.toAccount) return false;
     const available = draftAvailable();
     const source = isTransfer ? `${draft.from} in ${draft.account}` : `${draft.reserve} in ${draft.fromAccount}`;
     if (amount > available && !confirm(`${source} only has ${currency.format(available)}. Continue anyway?`)) {
-      return;
+      return false;
     }
     body = isTransfer
       ? { type: "transfer", reserve: draft.from, toReserve: draft.to, account: draft.account }
       : { type: "contra", reserve: draft.reserve, account: draft.fromAccount, toAccount: draft.toAccount };
   } else {
-    if (!draft.category) return;
+    if (!draft.category) return false;
     body = {
       type: draft.flow,
       category: draft.category,
@@ -837,14 +899,18 @@ amountForm.addEventListener("submit", async (event) => {
       income: () => `✓ Added to ${reserveLabel(created.reserve)} · ${created.account}`,
       expense: () => `✓ ${categoryTitle(created)} paid from ${reserveLabel(created.reserve)} · ${created.account}`,
     }[created.type]());
+    return true;
   } catch (err) {
     showStatus(err.message);
+    return false;
   } finally {
     postBtn.disabled = false;
   }
-});
+}
 
+// After a post: the popup closes and a short confirmation shows over the page.
 function showPosted(message) {
+  closeAdd();
   resetWizard();
   postedMsg.textContent = message;
   postedMsg.hidden = false;
@@ -855,10 +921,10 @@ function showPosted(message) {
 // "Transfer all": one transfer per account that holds some of the reserve's money.
 async function postTransferAll() {
   const parts = reserveSplit(draft.from);
-  if (!draft.to) return;
+  if (!draft.to) return false;
   if (!parts.length) {
     showStatus(`${draft.from} has nothing to move.`);
-    return;
+    return false;
   }
   const total = planTotal(parts);
   const common = { type: "transfer", reserve: draft.from, toReserve: draft.to, description: noteInput.value.trim(), date: dateInput.value || today() };
@@ -876,6 +942,7 @@ async function postTransferAll() {
     render();
     const from = parts.length > 1 ? ` (from ${parts.length} accounts)` : "";
     showPosted(`✓ Moved all ${currency.format(moved)} to ${common.toReserve}${from}`);
+    return true;
   } catch (err) {
     // Some transfers may have been saved: reload, then show what is left to move.
     const message = err.message;
@@ -889,6 +956,7 @@ async function postTransferAll() {
         ? `Moved ${currency.format(moved)} of ${currency.format(total)}, then: ${message}. Tap Transfer to move the rest.`
         : message
     );
+    return false;
   } finally {
     postBtn.disabled = false;
   }

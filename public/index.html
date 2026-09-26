@@ -43,87 +43,6 @@
         <div id="reserves" class="reserve-grid"></div>
       </section>
 
-      <section class="card wizard" id="wizard">
-        <div class="wizard-header">
-          <button type="button" id="wizard-back" class="back-btn" aria-label="Back" hidden>←</button>
-          <h2 id="wizard-title">Add Entry</h2>
-          <div class="steps" id="steps" aria-hidden="true"></div>
-        </div>
-
-        <!-- Step: income, expense or transfer -->
-        <div class="step" data-step="type">
-          <p class="step-hint">What would you like to add?</p>
-          <div class="type-cards">
-            <button type="button" class="type-card income" data-flow="income">
-              <span class="type-icon" aria-hidden="true">↓</span>
-              <span class="type-name">Income</span>
-              <span class="type-sub">Money in</span>
-            </button>
-            <button type="button" class="type-card expense" data-flow="expense">
-              <span class="type-icon" aria-hidden="true">↑</span>
-              <span class="type-name">Expense</span>
-              <span class="type-sub">Money out</span>
-            </button>
-            <button type="button" class="type-card transfer wide" data-flow="transfer">
-              <span class="type-icon" aria-hidden="true">⇄</span>
-              <span class="type-text">
-                <span class="type-name">Transfer</span>
-                <span class="type-sub">Move money between reserves</span>
-              </span>
-            </button>
-            <button type="button" class="type-card contra wide" data-flow="contra">
-              <span class="type-icon" aria-hidden="true">🔁</span>
-              <span class="type-text">
-                <span class="type-name">Contra</span>
-                <span class="type-sub">Move money between accounts (e.g. withdraw cash)</span>
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Step: pick a card (category, or reserve for transfers) -->
-        <div class="step" data-step="pick" hidden>
-          <p class="step-hint" id="pick-hint"></p>
-          <div class="category-grid" id="pick-grid"></div>
-        </div>
-
-        <!-- Step: amount -->
-        <form class="step" data-step="amount" id="amount-form" hidden>
-          <button type="button" class="chosen" id="chosen" aria-label="Change selection">
-            <span class="chosen-icon" id="chosen-icon" aria-hidden="true"></span>
-            <span class="chosen-text">
-              <span class="chosen-type" id="chosen-type"></span>
-              <span class="chosen-category" id="chosen-category"></span>
-            </span>
-            <span class="chosen-change">Change</span>
-          </button>
-
-          <div id="account-group" class="field-group" hidden>
-            <span class="field-label" id="account-label">Account</span>
-            <div class="chips" id="account-chips" role="radiogroup" aria-label="Account"></div>
-          </div>
-
-          <div id="pay-from" class="field-group" hidden>
-            <span class="field-label" id="pay-from-label">Paid from reserve</span>
-            <div class="chips" id="pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
-          </div>
-
-          <div id="transfer-available" class="available" hidden>
-            <span id="available-text"></span>
-            <button type="button" id="transfer-all" class="chip-btn">Transfer all</button>
-          </div>
-
-          <label class="amount-field">
-            <span class="currency" aria-hidden="true">₹</span>
-            <input id="amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">
-          </label>
-          <input id="note" type="text" placeholder="Note (optional)" maxlength="100">
-          <input id="date" type="date" required aria-label="Date">
-          <button type="submit" id="post-btn" class="post-btn">Post</button>
-        </form>
-
-        <p id="posted" class="posted" hidden></p>
-      </section>
      </div>
 
      <div id="screen-reports" class="screen" hidden>
@@ -209,6 +128,94 @@
      </div>
     </div>
   </main>
+
+  <!-- Add entry: a popup opened by the + button (and automatically when the app opens). -->
+  <button type="button" id="add-fab" class="add-fab" aria-label="Add entry" hidden>+</button>
+  <p id="posted" class="posted toast" role="status" hidden></p>
+  <dialog id="add-dialog" class="add-sheet" aria-labelledby="wizard-title" tabindex="-1">
+    <section class="card wizard" id="wizard">
+      <div class="wizard-header">
+        <button type="button" id="wizard-back" class="back-btn" aria-label="Back" hidden>←</button>
+        <h2 id="wizard-title">Add Entry</h2>
+        <div class="steps" id="steps" aria-hidden="true"></div>
+        <button type="button" id="add-close" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <p id="add-status" class="status add-status" hidden></p>
+
+      <!-- Step: income, expense or transfer -->
+      <div class="step" data-step="type">
+        <p class="step-hint">What would you like to add?</p>
+        <div class="type-cards">
+          <button type="button" class="type-card income" data-flow="income">
+            <span class="type-icon" aria-hidden="true">↓</span>
+            <span class="type-name">Income</span>
+            <span class="type-sub">Money in</span>
+          </button>
+          <button type="button" class="type-card expense" data-flow="expense">
+            <span class="type-icon" aria-hidden="true">↑</span>
+            <span class="type-name">Expense</span>
+            <span class="type-sub">Money out</span>
+          </button>
+          <button type="button" class="type-card transfer wide" data-flow="transfer">
+            <span class="type-icon" aria-hidden="true">⇄</span>
+            <span class="type-text">
+              <span class="type-name">Transfer</span>
+              <span class="type-sub">Move money between reserves</span>
+            </span>
+          </button>
+          <button type="button" class="type-card contra wide" data-flow="contra">
+            <span class="type-icon" aria-hidden="true">🔁</span>
+            <span class="type-text">
+              <span class="type-name">Contra</span>
+              <span class="type-sub">Move money between accounts (e.g. withdraw cash)</span>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step: pick a card (category, or reserve for transfers) -->
+      <div class="step" data-step="pick" hidden>
+        <p class="step-hint" id="pick-hint"></p>
+        <div class="category-grid" id="pick-grid"></div>
+      </div>
+
+      <!-- Step: amount -->
+      <form class="step" data-step="amount" id="amount-form" hidden>
+        <button type="button" class="chosen" id="chosen" aria-label="Change selection">
+          <span class="chosen-icon" id="chosen-icon" aria-hidden="true"></span>
+          <span class="chosen-text">
+            <span class="chosen-type" id="chosen-type"></span>
+            <span class="chosen-category" id="chosen-category"></span>
+          </span>
+          <span class="chosen-change">Change</span>
+        </button>
+
+        <div id="account-group" class="field-group" hidden>
+          <span class="field-label" id="account-label">Account</span>
+          <div class="chips" id="account-chips" role="radiogroup" aria-label="Account"></div>
+        </div>
+
+        <div id="pay-from" class="field-group" hidden>
+          <span class="field-label" id="pay-from-label">Paid from reserve</span>
+          <div class="chips" id="pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
+        </div>
+
+        <div id="transfer-available" class="available" hidden>
+          <span id="available-text"></span>
+          <button type="button" id="transfer-all" class="chip-btn">Transfer all</button>
+        </div>
+
+        <label class="amount-field">
+          <span class="currency" aria-hidden="true">₹</span>
+          <input id="amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">
+        </label>
+        <input id="note" type="text" placeholder="Note (optional)" maxlength="100">
+        <input id="date" type="date" required aria-label="Date">
+        <button type="submit" id="post-btn" class="post-btn">Post</button>
+      </form>
+
+    </section>
+  </dialog>
 
   <dialog id="edit-dialog" aria-labelledby="edit-title">
     <form id="edit-form" method="dialog">

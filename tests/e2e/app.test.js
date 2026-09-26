@@ -41,8 +41,21 @@ const cards = (n) => page.waitForFunction((n) => document.querySelectorAll(".ent
 const reserve = async (name) =>
   page.$eval(`.reserve-card[aria-label^="${name}"] .reserve-balance`, (e) => e.textContent);
 
+// The Add Entry popup (R41): opened with the + button, and by itself whenever the app loads.
+const addOpen = () => page.evaluate(() => document.getElementById("add-dialog").open);
+async function openAdd() {
+  if (!(await addOpen())) {
+    await page.tap("#add-fab");
+    await settle();
+  }
+}
+async function closeAdd() {
+  if (await addOpen()) await page.tap("#add-close");
+}
+
 // Switches screen the way the nav buttons do (#entries, #reports, #budget; "" = home).
 async function screen(name) {
+  await closeAdd();
   await page.evaluate((n) => {
     location.hash = n;
   }, name);
@@ -68,6 +81,7 @@ async function pickSubIfAsked(sub = "Petrol") {
 }
 
 async function addEntry(flow, category, amount, { date, reserve: into, sub } = {}) {
+  await openAdd();
   await page.tap(`.type-card[data-flow=${flow}]`);
   await settle();
   await page.tap(`#pick-grid .category-card:has-text("${category}")`);
@@ -83,6 +97,8 @@ test("R4: app opens straight to the balance with no password", { skip }, async (
   await page.goto(URL_);
   await page.waitForSelector("#app:not([hidden])");
   assert.equal(await page.locator("input[type=password]").count(), 0);
+  // R41: the Add Entry popup opens by itself when the app opens.
+  assert.ok(await addOpen(), "Add Entry opens automatically");
   assert.equal(await page.textContent("#balance"), "₹0.00");
   // R1: no income / expense totals under the balance on the home page.
   assert.equal(await page.locator("#screen-home .totals, #total-income, #total-expense").count(), 0);
@@ -91,6 +107,7 @@ test("R4: app opens straight to the balance with no password", { skip }, async (
 test("R6/R7: adding an entry rides through type → category → amount cards", { skip }, async () => {
   assert.ok(await page.isVisible('.step[data-step="type"]'));
   assert.ok(await page.isHidden('.step[data-step="amount"]'));
+  await openAdd();
   await page.tap(".type-card[data-flow=income]");
   await settle();
   assert.ok(await page.isHidden('.step[data-step="amount"]'), "amount step hidden while picking category");
@@ -104,7 +121,11 @@ test("R6/R7: adding an entry rides through type → category → amount cards", 
   await page.tap("#post-btn");
   await cards(1);
   assert.equal(await page.textContent("#balance"), "₹50,000.00");
-  assert.ok(await page.isVisible('.step[data-step="type"]'), "wizard returns to step 1");
+  // R41: after Post the popup closes and a confirmation shows; + opens it again at step 1.
+  assert.equal(await addOpen(), false);
+  assert.match(await page.textContent("#posted"), /Added to Salary/);
+  await openAdd();
+  assert.ok(await page.isVisible('.step[data-step="type"]'), "a fresh entry starts at step 1");
 });
 
 test("R8/R9/R10: income reserves, income allotted elsewhere, expense paid from a chosen reserve", { skip }, async () => {
@@ -141,6 +162,7 @@ test("R14/R13: report shows what happened to Salary of August (FIFO after July)"
 });
 
 test("R11/R12: tapping a reserve card transfers its whole balance; total balance unchanged", { skip }, async () => {
+  await closeAdd();
   await page.tap('.reserve-card[aria-label^="Salary"]');
   await settle();
   await page.tap('#pick-grid .category-card:has-text("General Reserve")');
@@ -163,6 +185,7 @@ test("R5: tapping an entry card opens the editor; changes are saved to the datab
   await page.waitForFunction(() => !document.querySelector("dialog").open);
   await page.reload();
   await page.waitForSelector(".entry-card", { state: "attached" });
+  await closeAdd();
   assert.equal(await page.textContent("#balance"), "₹45,300.00");
   await screen("");
 });
@@ -185,6 +208,7 @@ test("R9: an income's reserve can be changed in the editor", { skip }, async () 
   await page.waitForFunction(() => !document.querySelector("dialog").open);
   await page.reload();
   await page.waitForSelector(".entry-card", { state: "attached" });
+  await closeAdd();
   assert.equal(await page.locator('.reserve-card[aria-label^="Gift"]').count(), 0);
   assert.equal(await reserve("General Reserve"), "₹46,300.00");
   assert.equal(await page.textContent("#balance"), "₹46,300.00");
@@ -192,6 +216,7 @@ test("R9: an income's reserve can be changed in the editor", { skip }, async () 
 });
 
 test("R17/R18: payments default to Super Money; another account can be chosen", { skip }, async () => {
+  await openAdd();
   await page.tap(".type-card[data-flow=expense]");
   await settle();
   await page.tap('#pick-grid .category-card:has-text("Mandatory Food")');
@@ -210,6 +235,7 @@ test("R17/R18: payments default to Super Money; another account can be chosen", 
 });
 
 test("R19: contra moves money between accounts without changing reserves or the balance", { skip }, async () => {
+  await closeAdd();
   await page.tap('.account-card[aria-label^="Super Money"]');
   await settle();
   assert.equal(await page.textContent("#wizard-title"), "Contra");
@@ -244,6 +270,7 @@ test("R20: grid report of reserves × accounts adds up", { skip }, async () => {
 
 test("R11: 'Transfer all' moves the whole reserve even when it is split across accounts", { skip }, async () => {
   // Salary money in two accounts: 1,000 in Cash and 2,000 in Super Money.
+  await openAdd();
   await page.tap(".type-card[data-flow=income]");
   await settle();
   await page.tap('#pick-grid .category-card:has-text("Salary")');
@@ -255,6 +282,8 @@ test("R11: 'Transfer all' moves the whole reserve even when it is split across a
   await addEntry("income", "Salary", 2000);
   await cards(12);
   assert.equal(await reserve("Salary"), "₹3,000.00");
+
+  await closeAdd();
 
   await page.tap('.reserve-card[aria-label^="Salary"]');
   await settle();
@@ -279,6 +308,7 @@ test("R11: 'Transfer all' moves the whole reserve even when it is split across a
 });
 
 async function post(flow, category, amount, { reserve: into, account: acct, sub } = {}) {
+  await openAdd();
   await page.tap(`.type-card[data-flow=${flow}]`);
   await settle();
   await page.tap(`#pick-grid .category-card:has-text("${category}")`);
@@ -291,6 +321,7 @@ async function post(flow, category, amount, { reserve: into, account: acct, sub 
 }
 
 async function startTransferAll(from, to) {
+  await closeAdd(); // the reserve cards are on the page behind the popup
   await page.tap(`.reserve-card[aria-label^="${from}"]`);
   await settle();
   await page.tap(`#pick-grid .category-card:has-text("${to}")`);
@@ -319,6 +350,7 @@ test("R11: a Transfer all amount does not carry over to a transfer from another 
   await cards(19);
   await startTransferAll("Freelance", "General Reserve");
   assert.equal(await page.inputValue("#amount"), "750.00");
+  await closeAdd(); // ✕, then tap another reserve on the page
   await page.tap('.reserve-card[aria-label^="General Reserve"]');
   await settle();
   await page.tap('#pick-grid .category-card:has-text("Freelance")');
@@ -338,8 +370,8 @@ test("R11: if Transfer all fails halfway, the rest can be moved and nothing is l
   });
   await startTransferAll("Freelance", "General Reserve");
   await page.tap("#post-btn");
-  await page.waitForFunction(() => document.getElementById("status").textContent.includes("Simulated failure"));
-  assert.match(await page.textContent("#status"), /Moved ₹500\.00 of ₹750\.00.*Tap Transfer to move the rest/);
+  await page.waitForFunction(() => document.getElementById("add-status").textContent.includes("Simulated failure"));
+  assert.match(await page.textContent("#add-status"), /Moved ₹500\.00 of ₹750\.00.*Tap Transfer to move the rest/);
   assert.equal(await page.inputValue("#amount"), "250.00");
   assert.match(await page.textContent("#available-text"), /GPay ₹250\.00/);
   await page.unroute("**/api/entries");
@@ -352,10 +384,11 @@ test("R11: if Transfer all fails halfway, the rest can be moved and nothing is l
 
 test("R11: 'nothing to move' is shown, then cleared when leaving; new flows start with no amount", { skip }, async () => {
   await startTransferAll("Business", "General Reserve");
-  assert.equal(await page.textContent("#status"), "Business has nothing to move.");
+  // R41: while the popup is open its messages show inside it.
+  assert.equal(await page.textContent("#add-status"), "Business has nothing to move.");
   await page.tap("#wizard-back");
   await settle();
-  assert.ok(await page.isHidden("#status"), "message cleared after leaving the step");
+  assert.ok(await page.isHidden("#add-status"), "message cleared after leaving the step");
 
   await startTransferAll("General Reserve", "Salary");
   assert.notEqual(await page.inputValue("#amount"), "");
@@ -363,6 +396,7 @@ test("R11: 'nothing to move' is shown, then cleared when leaving; new flows star
     await page.tap("#wizard-back"); // amount → to → from → type
     await settle();
   }
+  await openAdd();
   await page.tap(".type-card[data-flow=income]");
   await settle();
   await page.tap('#pick-grid .category-card:has-text("Salary")');
@@ -375,6 +409,7 @@ test("R11: 'nothing to move' is shown, then cleared when leaving; new flows star
 });
 
 test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Rent' and 'EMI & Loans')", { skip }, async () => {
+  await openAdd();
   await page.tap(".type-card[data-flow=expense]");
   await settle();
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
@@ -408,6 +443,7 @@ test("R7/R5: entries saved with a replaced category keep their name and icon and
   assert.equal(res.status(), 201);
   await page.reload();
   await page.waitForSelector(".entry-card", { state: "attached" });
+  await closeAdd();
   await screen("entries");
   const card = page.locator('.entry-card:has-text("Rent")').first();
   assert.match(await card.innerText(), /🏠/);
@@ -444,7 +480,7 @@ test("R21: the entries list is on its own screen, opened from a button on the ho
   assert.ok(await page.isVisible("#entries .entry-card"));
   await page.tap("#nav-back");
   await page.waitForSelector("#screen-home:not([hidden])");
-  assert.ok(await page.isVisible("#wizard"));
+  assert.ok(await page.isVisible("#add-fab"), "the + button for adding entries is on the home page");
 });
 
 test("R22: quick filter buttons and more filters narrow the entries list", { skip }, async () => {
@@ -659,6 +695,7 @@ test("R28/R39: the Planned section shows automatic food lines (last 30 days → 
 
 test("R29: tapping Ntorq asks Petrol or Repair / Accessory; the type is saved and editable", { skip }, async () => {
   await screen("");
+  await openAdd();
   await page.tap(".type-card[data-flow=expense]");
   await settle();
   await page.tap('#pick-grid .category-card:has-text("Ntorq")');
@@ -678,6 +715,7 @@ test("R29: tapping Ntorq asks Petrol or Repair / Accessory; the type is saved an
   assert.deepEqual([saved.category, saved.subcategory], ["Ntorq", "Repair / Accessory"]);
 
   // Other cards go straight to the amount.
+  await openAdd();
   await page.tap(".type-card[data-flow=expense]");
   await settle();
   await page.tap('#pick-grid .category-card:has-text("Transport")');
@@ -785,6 +823,7 @@ test("R31/R39: automatic Ntorq lines: petrol per week, repair per month, both fo
 
 test("R32/R33: Dress replaces Shopping; automatic Transport (3 weeks) and Bills & Utilities (1 month) lines", { skip }, async () => {
   await screen("");
+  await openAdd();
   await page.tap(".type-card[data-flow=expense]");
   await settle();
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
@@ -898,4 +937,66 @@ test("R38: plan dates are limited to the 3-month forecast, but a later plan can 
   await page.tap("#plan-close");
   await page.request.delete(URL_ + "api/plans?id=" + plan.id);
   await screen("");
+});
+
+test("R41: Add Entry is a popup from the + button; a tap outside closes it, or posts a ready entry", { skip }, async () => {
+  await screen("");
+  const count = async () => (await (await page.request.get(URL_ + "api/entries")).json()).length;
+  const outside = () => page.touchscreen.tap(200, 20); // the page above the bottom sheet
+  const before = await count();
+
+  // The + button is a small round button on the side, on every screen.
+  const fab = await page.$eval("#add-fab", (b) => {
+    const r = b.getBoundingClientRect();
+    return { w: r.width, right: window.innerWidth - r.right, position: getComputedStyle(b).position };
+  });
+  assert.ok(fab.w <= 64 && fab.right <= 24 && fab.position === "fixed", JSON.stringify(fab));
+  await screen("entries");
+  assert.ok(await page.isVisible("#add-fab"));
+  await screen("");
+
+  // Nothing typed: a tap outside just closes it.
+  await openAdd();
+  await outside();
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await outside(); // category chosen but no amount: closes without posting
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  assert.equal(await count(), before);
+
+  // An amount typed: a tap outside posts it, then closes.
+  await openAdd();
+  assert.ok(await page.isVisible('.step[data-step="type"]'), "a fresh entry each time");
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "123");
+  await page.fill("#note", "Tapped outside");
+  await outside();
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  await page.waitForFunction(() => /Health paid from/.test(document.getElementById("posted").textContent));
+  const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "Tapped outside");
+  assert.deepEqual([saved.type, saved.category, saved.amount], ["expense", "Health", 123]);
+  assert.equal(await count(), before + 1);
+
+  // ✕ closes without posting.
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "50");
+  await page.tap("#add-close");
+  assert.equal(await addOpen(), false);
+  assert.equal(await count(), before + 1);
+
+  // Coming back to the app opens it again.
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  assert.ok(await addOpen(), "opens when the app is opened again");
+  await closeAdd();
 });
