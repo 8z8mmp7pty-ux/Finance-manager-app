@@ -50,7 +50,13 @@ export default async function handler(req, res) {
       }
       const plan = validate(body || {});
       if (typeof plan === "string") return send(res, 400, { error: plan });
-      if (beyondForecast(plan, req.method === "POST")) {
+      let unchangedDate = false;
+      if (req.method === "PUT") {
+        const { rows } = await query("SELECT to_char(next_date, 'YYYY-MM-DD') AS d FROM plans WHERE id = $1", [id]);
+        unchangedDate = rows.length > 0 && rows[0].d === plan.nextDate;
+      }
+      // Editing other details of a plan already dated later (e.g. an older plan) is allowed.
+      if (!unchangedDate && beyondForecast(plan, req.method === "POST")) {
         return send(res, 400, { error: "Plans can only be dated within the next 3 months" });
       }
       const values = [plan.type, plan.category, plan.description, plan.amount, plan.nextDate, plan.repeat, plan.day];

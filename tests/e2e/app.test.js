@@ -551,8 +551,11 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   assert.equal(await page.locator("#plan-list .plan-item:not(.auto-plan)").count(), 2);
 
   const rows = await page.$$eval("#forecast-table tr", (trs) => trs.map((tr) => [...tr.children].map((c) => c.innerText.trim())));
-  assert.equal(rows.length, 1 + 1 + 4, "header, today, then 3 months: the rest of this month, 2 full months, part of the 3rd");
-  assert.match(rows[2][0], /^\d+–\d+ \w+/, "the first (partial) month shows its days");
+  // Header, today, then one row per (part of a) month to the same date 3 months ahead:
+  // usually 4 rows (e.g. 26–30 Sept, Oct, Nov, 1–25 Dec), 3 when today is the 1st.
+  const expectedMonths = localToday().endsWith("-01") ? 3 : 4;
+  assert.equal(rows.length, 1 + 1 + expectedMonths);
+  if (expectedMonths === 4) assert.match(rows[2][0], /^\d+–\d+ \w+/, "the first (partial) month shows its days");
   const next = rows[3];
   assert.equal(next[1], "+₹60,000");
   // Out = the Mandatory Food budget (more than its auto plan) plus the automatic lines that reach
@@ -820,5 +823,35 @@ test("R36: the home page shows funds available to spend after everything in the 
   assert.equal(num(await page.textContent("#balance")), balance);
   const rows = await page.$$eval("#available-list .report-row .entry-amount.expense", (els) => els.map((e) => e.textContent));
   assert.equal(Math.round(rows.reduce((s, t) => s + num(t.replace("−", "")), 0) * 100), Math.round(expected * 100));
+  await screen("");
+});
+
+test("R38: plan dates are limited to the 3-month forecast, but a later plan can still be edited", { skip }, async () => {
+  const late = new Date(Date.now() + 200 * 86400000).toISOString().slice(0, 10);
+  // Made later than the window, as after an early Record of a monthly plan.
+  const created = await page.request.post(URL_ + "api/plans", {
+    data: { type: "expense", category: "Health", amount: 900, nextDate: localToday(), repeat: "monthly" },
+  });
+  const plan = await created.json();
+  const moved = await page.request.put(URL_ + "api/plans?id=" + plan.id, { data: { ...plan, nextDate: late } });
+  assert.equal(moved.status(), 200);
+  await page.reload();
+  await page.waitForSelector("#app:not([hidden])");
+  await screen("budget");
+  await page.tap('#plan-list .plan-item:has-text("after the 3-month forecast") .plan-row');
+  await page.waitForSelector("#plan-dialog[open]");
+  assert.equal(await page.getAttribute("#plan-date", "max"), "", "no date limit when editing a later plan");
+  await page.fill("#plan-amount", "950");
+  await page.tap("#plan-save");
+  await page.waitForFunction(() => !document.getElementById("plan-dialog").open);
+  const saved = (await (await page.request.get(URL_ + "api/plans")).json()).find((p) => p.id === plan.id);
+  assert.equal(saved.amount, 950);
+
+  // A new plan's date picker stops at the end of the forecast.
+  await page.tap("#plan-add");
+  await page.waitForSelector("#plan-dialog[open]");
+  assert.match(await page.getAttribute("#plan-date", "max"), /^\d{4}-\d{2}-\d{2}$/);
+  await page.tap("#plan-close");
+  await page.request.delete(URL_ + "api/plans?id=" + plan.id);
   await screen("");
 });

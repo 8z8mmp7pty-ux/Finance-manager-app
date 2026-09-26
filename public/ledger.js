@@ -558,7 +558,10 @@ function lastDayOfMonth(date) {
 export const FORECAST_MONTHS = 3;
 
 export function forecastEnd(today, months = FORECAST_MONTHS) {
-  return addDays(addMonths(today, months), -1);
+  const same = addMonths(today, months);
+  // If the target month is shorter (31 Jan → 30 Apr), its last day is already the day before the
+  // "same date", so it is the end; otherwise the end is the day before the same date.
+  return Number(today.slice(8)) > Number(same.slice(8)) ? same : addDays(same, -1);
 }
 
 // Forecast from today to forecastEnd(today, months), one row per (part of a) calendar month.
@@ -583,7 +586,9 @@ export function cashflowForecast(entries, budgets, plans, today, months = FORECA
     day.set(category, (day.get(category) || 0) + amount);
   };
   for (const plan of plans) {
-    for (const date of planOccurrences(plan, today, until)) {
+    // A plan that is overdue (possibly for several months) counts once, as due today.
+    const dates = planOccurrences(plan, today, until).filter((d, i, all) => d !== today || all.indexOf(today) === i);
+    for (const date of dates) {
       items.push({ plan, date });
       if (plan.type === "income") plannedIn.set(date, (plannedIn.get(date) || 0) + plan.amount);
       else addOut(date, plan.category, plan.amount);

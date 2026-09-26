@@ -624,3 +624,22 @@ test("R37: a planned payment in a category with an Auto line adds to it (forecas
   const small = availableToSpend(entries, [{ category: "Ntorq", amount: 100 }], [service, salary], today, lines);
   assert.ok(small.rows[0].expected >= 2900);
 });
+
+test("R38: the 3-month window ends on the right day at month ends", () => {
+  assert.equal(forecastEnd("2026-09-26"), "2026-12-25");
+  assert.equal(forecastEnd("2027-01-31"), "2027-04-30");
+  assert.equal(forecastEnd("2026-11-30"), "2027-02-28");
+  assert.equal(forecastEnd("2027-11-29"), "2028-02-28");
+  assert.equal(forecastEnd("2026-08-31"), "2026-11-30");
+  assert.equal(forecastEnd("2028-02-29"), "2028-05-28");
+  assert.equal(forecastEnd("2026-10-01"), "2026-12-31");
+});
+
+test("R36/R38: an overdue monthly plan counts once (as due today), not once per missed month", () => {
+  const today = "2026-09-26";
+  const salary = { type: "income", category: "Salary", amount: 50000, nextDate: "2026-07-01", repeat: "monthly", day: 1 };
+  const a = availableToSpend([], [], [salary], today);
+  // Today (overdue, once) + 1 Oct + 1 Nov + 1 Dec = 4 salaries, not 6.
+  assert.equal(a.income, 200000);
+  assert.equal(a.forecast.rows[0].income, 50000);
+});

@@ -578,3 +578,6 @@ li:last-child > button.report-row { border-bottom: none; }
 #available-list .entry-info { min-width: 90px; }
 .available-amount.expense { color: var(--expense); }
 .available-meta { font-size: 0.75rem; color: var(--muted); text-align: center; }
+.nowrap { white-space: nowrap; }
+.plan-row .entry-info { min-width: 90px; }
+.plan-row .entry-amount { flex-shrink: 0; }

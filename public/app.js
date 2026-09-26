@@ -1544,8 +1544,15 @@ function renderAvailable() {
   document.getElementById("available").classList.toggle("negative", a.available < 0);
   // A dip below zero along the way matters even when the end result is positive.
   const dip = a.lowest.balance < 0 && a.lowest.balance < a.available ? ` · lowest ${currency.format(a.lowest.balance)} on ${shortDate(a.lowest.date)}` : "";
-  document.getElementById("available-meta").textContent =
-    `after everything until ${shortDate(a.until)} · +${currency.format(a.income)} in · −${currency.format(a.expected)} out${dip}`;
+  // Each part stays on one line when the text wraps ("+₹1,20,000 in" never splits after the sign).
+  const meta = document.getElementById("available-meta");
+  meta.innerHTML = "";
+  const parts = [`after everything until ${shortDate(a.until)}`, `+${currency.format(a.income)} in`, `−${currency.format(a.expected)} out`];
+  if (dip) parts.push(dip.slice(3));
+  parts.forEach((text, i) => {
+    if (i) meta.append(" · ");
+    meta.append(el("span", "nowrap", text));
+  });
 
   // Breakdown on the Budget screen.
   document.getElementById("available-title").textContent = `Available to spend (until ${shortDate(a.until)})`;
@@ -1784,8 +1791,10 @@ function openPlan(plan = null) {
   planForm.elements["plan-repeat"].value = plan ? plan.repeat : "none";
   planAmount.value = plan ? plan.amount : "";
   planDate.value = plan ? plan.nextDate : today();
-  // Plans can only be dated within the forecast (the next FORECAST_MONTHS months).
-  planDate.max = forecastEnd(today());
+  // New plans can only be dated within the forecast (the next FORECAST_MONTHS months). An existing
+  // plan that is already later (e.g. moved on by an early Record) can still be edited.
+  const limit = forecastEnd(today());
+  planDate.max = plan && (plan.repeat === "monthly" || plan.nextDate > limit) ? "" : limit;
   planNote.value = plan ? plan.description : "";
   document.getElementById("plan-title").textContent = plan ? "Edit plan" : "Plan a cashflow";
   planDelete.hidden = !plan;
