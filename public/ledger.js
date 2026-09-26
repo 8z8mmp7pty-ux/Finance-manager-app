@@ -6,6 +6,8 @@
 // covered by the next lot that arrives.
 
 export const GENERAL = "General Reserve";
+// Spending-report group (and entries filter value) for old expenses saved without a category.
+export const UNCATEGORISED = "Uncategorised";
 export const DEFAULT_ACCOUNT = "Super Money";
 export const ACCOUNTS = ["Super Money", "GPay", "Cash"];
 
@@ -292,8 +294,10 @@ export function transferAllPlan(entries, reserve) {
 // ---------- Dates ----------
 
 // Adds months to a YYYY-MM-DD date, keeping the day where possible (31 Jan + 1 month = 28/29 Feb).
-export function addMonths(date, months) {
-  const [y, m, d] = date.split("-").map(Number);
+// `day` overrides the day to aim for, so a monthly date on the 31st returns to the 31st after February.
+export function addMonths(date, months, day) {
+  const [y, m, dateDay] = date.split("-").map(Number);
+  const d = day || dateDay;
   const total = y * 12 + (m - 1) + months;
   const year = Math.floor(total / 12);
   const month = (total % 12) + 1;
@@ -337,7 +341,7 @@ export function filterEntries(entries, filters, today) {
     if (f.from && e.date < f.from) return false;
     if (f.to && e.date > f.to) return false;
     if (f.type && e.type !== f.type) return false;
-    if (f.category && e.category !== f.category) return false;
+    if (f.category && (f.category === UNCATEGORISED ? e.category !== "" : e.category !== f.category)) return false;
     if (f.reserve && e.reserve !== f.reserve && e.toReserve !== f.reserve) return false;
     if (f.account && (e.account || DEFAULT_ACCOUNT) !== f.account && e.toAccount !== f.account) return false;
     if (search) {
@@ -366,7 +370,7 @@ export function spendingByCategory(entries, filters, today) {
   const expenses = filterEntries(entries, { ...filters, type: "expense" }, today);
   const groups = new Map();
   for (const e of expenses) {
-    const key = e.category || e.description || "Other";
+    const key = e.category || UNCATEGORISED;
     if (!groups.has(key)) groups.set(key, { category: key, amount: 0, count: 0 });
     const g = groups.get(key);
     g.amount = round(g.amount + e.amount);
@@ -403,7 +407,7 @@ export function planOccurrences(plan, today, until) {
   for (let i = 0; date < until && i < 240; i++) {
     dates.push(date < today ? today : date);
     if (plan.repeat !== "monthly") break;
-    date = addMonths(plan.nextDate, i + 1);
+    date = addMonths(plan.nextDate, i + 1, plan.day);
   }
   return dates;
 }

@@ -44,6 +44,10 @@ test("R3/R18/R19: upgrade from the reserves schema keeps data, adds Super Money,
   assert.equal(byType.transfer.toReserve, "General Reserve");
   for (const e of res.data) assert.equal(e.account, "Super Money");
 
+  // R25/R26: the budgets and plans tables are added alongside the existing data.
+  const tables = await raw("SELECT to_regclass('budgets') AS budgets, to_regclass('plans') AS plans");
+  assert.deepEqual(tables.rows[0], { budgets: "budgets", plans: "plans" });
+
   const contra = await call(handler, "POST", "/api/entries", {
     type: "contra", account: "Super Money", toAccount: "Cash", amount: 500, description: "", date: "2026-08-04",
   });

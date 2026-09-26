@@ -16,6 +16,7 @@ import {
   receiptReport,
   budgetStatus,
   cashflowForecast,
+  UNCATEGORISED,
 } from "./ledger.js";
 
 const CATEGORIES = {
@@ -361,9 +362,15 @@ const pageTitle = document.getElementById("page-title");
 const navBack = document.getElementById("nav-back");
 
 // The screen comes from the URL hash (#entries, #reports, #budget), so the phone's back button works.
+let currentScreen = null; // null until the first screen is shown (e.g. the app opened on #budget)
+
 function showScreen() {
   const name = location.hash.slice(1);
   const screen = SCREENS[name] ? name : "home";
+  // An open sheet belongs to the screen being left (e.g. the phone's back button was pressed).
+  document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+  cameFromApp = currentScreen !== null && currentScreen !== screen;
+  currentScreen = screen;
   for (const key of Object.keys(SCREENS)) {
     document.getElementById("screen-" + key).hidden = key !== screen;
   }
@@ -373,9 +380,14 @@ function showScreen() {
 }
 
 window.addEventListener("hashchange", showScreen);
+// true when the current screen was reached from another screen of the app, so ← can simply go
+// back in history (then the phone's back button leaves the app instead of reopening this screen).
+let cameFromApp = false;
+
 navBack.addEventListener("click", (event) => {
   event.preventDefault();
-  location.hash = "";
+  if (cameFromApp) history.back();
+  else location.replace("#");
 });
 
 function goTo(screen) {
@@ -415,6 +427,7 @@ function renderFilterControls() {
   const used = [...new Set(entries.map((e) => e.category).filter(Boolean))];
   const known = [...CATEGORIES.income, ...CATEGORIES.expense].map((c) => c.name);
   const categories = [...new Set([...known, ...used])];
+  if (entries.some((e) => !e.category && e.type !== "transfer" && e.type !== "contra")) categories.push(UNCATEGORISED);
   fillSelect(filterInputs.category, "All categories", categories, filters.category);
   fillSelect(filterInputs.reserve, "All reserves", computeReserves().map((r) => r.name), filters.reserve);
   fillSelect(filterInputs.account, "All accounts", ACCOUNTS, filters.account);
@@ -427,6 +440,7 @@ function renderFilterControls() {
   const count = document.getElementById("filter-count");
   count.hidden = extra === 0;
   count.textContent = String(extra);
+  document.getElementById("f-clear-quick").hidden = Object.keys(EMPTY_FILTERS).every((k) => filters[k] === EMPTY_FILTERS[k]);
 }
 
 function setFilters(changes) {
@@ -451,6 +465,7 @@ for (const [key, input] of Object.entries(filterInputs)) {
   input.addEventListener(key === "search" ? "input" : "change", () => setFilters({ [key]: input.value }));
 }
 document.getElementById("f-clear").addEventListener("click", () => setFilters({ ...EMPTY_FILTERS }));
+document.getElementById("f-clear-quick").addEventListener("click", () => setFilters({ ...EMPTY_FILTERS }));
 
 // ---------- Add entry: step-by-step cards ----------
 
@@ -1646,6 +1661,7 @@ planForm.addEventListener("submit", async (event) => {
     category: planDraft.category,
     amount,
     nextDate: planDate.value,
+    day: Number(planDate.value.slice(8, 10)),
     repeat: planForm.elements["plan-repeat"].value,
     description: planNote.value.trim(),
   };
@@ -1693,12 +1709,21 @@ async function recordPlan(plan) {
     });
     entries.push(created);
     sortEntries();
-    if (plan.repeat === "monthly") {
-      const next = await api("PUT", "?id=" + encodeURIComponent(plan.id), { ...plan, nextDate: addMonths(plan.nextDate, 1) }, "plans");
-      plans = plans.map((p) => (p.id === next.id ? next : p));
-    } else {
-      await api("DELETE", "?id=" + encodeURIComponent(plan.id), null, "plans");
-      plans = plans.filter((p) => p.id !== plan.id);
+    try {
+      if (plan.repeat === "monthly") {
+        const nextDate = addMonths(plan.nextDate, 1, plan.day);
+        const next = await api("PUT", "?id=" + encodeURIComponent(plan.id), { ...plan, nextDate }, "plans");
+        plans = plans.map((p) => (p.id === next.id ? next : p));
+      } else {
+        await api("DELETE", "?id=" + encodeURIComponent(plan.id), null, "plans");
+        plans = plans.filter((p) => p.id !== plan.id);
+      }
+    } catch (err) {
+      // The entry is saved; only updating the plan failed. Say so, so it is not recorded twice.
+      render();
+      const what = plan.repeat === "monthly" ? "move the plan to next month" : "remove the plan";
+      showStatus(`Recorded ${plan.category}, but could not ${what} (${err.message}). Edit or delete the plan so it isn't recorded again.`);
+      return;
     }
     showStatus(`Recorded ${plan.category} ${currency.format(plan.amount)}.`, false);
     render();

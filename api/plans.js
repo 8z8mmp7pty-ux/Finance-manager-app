@@ -3,7 +3,7 @@ import { query, DatabaseConfigError } from "../lib/db.js";
 import { send, readBody, text, parseAmount, isDate, queryParam } from "../lib/http.js";
 
 const COLUMNS =
-  "id, type, category, description, amount, to_char(next_date, 'YYYY-MM-DD') AS \"nextDate\", repeat";
+  "id, type, category, description, amount, to_char(next_date, 'YYYY-MM-DD') AS \"nextDate\", repeat, day";
 
 function validate(body) {
   const type = body.type;
@@ -18,7 +18,9 @@ function validate(body) {
   if (amount === null) return "Amount must be a positive number";
   if (!isDate(nextDate)) return "Date must be in YYYY-MM-DD format";
   if (repeat !== "none" && repeat !== "monthly") return "Repeat must be none or monthly";
-  return { type, category, description, amount, nextDate, repeat };
+  const day = body.day === undefined || body.day === null ? Number(nextDate.slice(8, 10)) : Number(body.day);
+  if (!Number.isInteger(day) || day < 1 || day > 31) return "Day must be between 1 and 31";
+  return { type, category, description, amount, nextDate, repeat, day };
 }
 
 export default async function handler(req, res) {
@@ -40,18 +42,19 @@ export default async function handler(req, res) {
       }
       const plan = validate(body || {});
       if (typeof plan === "string") return send(res, 400, { error: plan });
-      const values = [plan.type, plan.category, plan.description, plan.amount, plan.nextDate, plan.repeat];
+      const values = [plan.type, plan.category, plan.description, plan.amount, plan.nextDate, plan.repeat, plan.day];
       if (req.method === "POST") {
         const { rows } = await query(
-          `INSERT INTO plans (type, category, description, amount, next_date, repeat)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${COLUMNS}`,
+          `INSERT INTO plans (type, category, description, amount, next_date, repeat, day)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${COLUMNS}`,
           values
         );
         return send(res, 201, rows[0]);
       }
       const { rows } = await query(
-        `UPDATE plans SET type = $1, category = $2, description = $3, amount = $4, next_date = $5, repeat = $6
-         WHERE id = $7 RETURNING ${COLUMNS}`,
+        `UPDATE plans SET type = $1, category = $2, description = $3, amount = $4, next_date = $5, repeat = $6,
+             day = $7
+         WHERE id = $8 RETURNING ${COLUMNS}`,
         [...values, id]
       );
       return rows.length ? send(res, 200, rows[0]) : send(res, 404, { error: "Plan not found" });

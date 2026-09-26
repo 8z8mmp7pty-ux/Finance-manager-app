@@ -561,3 +561,41 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   assert.equal(plans[0].nextDate.slice(0, 7) > nextMonth1st.slice(0, 7), true);
   await screen("");
 });
+
+test("R21: ← does not leave an extra history step, and changing screen closes an open sheet", { skip }, async () => {
+  await screen("");
+  const before = await page.evaluate(() => history.length);
+  await page.tap("#nav-entries");
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  await page.tap("#nav-back");
+  await page.waitForSelector("#screen-home:not([hidden])");
+  assert.equal(await page.evaluate(() => history.length), before + 1, "← went back instead of adding a step");
+
+  await page.tap("#nav-budget");
+  await page.waitForSelector("#screen-budget:not([hidden])");
+  await page.tap("#plan-add");
+  await page.waitForSelector("#plan-dialog[open]");
+  await page.goBack(); // the phone's back button
+  await page.waitForSelector("#screen-home:not([hidden])");
+  assert.equal(await page.$eval("#plan-dialog", (d) => d.open), false);
+});
+
+test("R23: an old expense without a category opens from the spending report", { skip }, async () => {
+  const res = await page.request.post(URL_ + "api/entries", {
+    data: { type: "expense", category: "", description: "chai", amount: 40, date: localToday() },
+  });
+  assert.equal(res.status(), 201);
+  await page.reload();
+  await page.waitForSelector("#app:not([hidden])");
+  await openReport("spending");
+  await page.tap('#report-body .qf[data-period="all"]');
+  await page.tap('#report-body .spend-row:has-text("Uncategorised")');
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  const shown = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.equal(shown.length, 1);
+  assert.match(shown[0], /chai/);
+  assert.equal(await page.inputValue("#f-category"), "Uncategorised");
+  await page.tap("#f-clear-quick"); // visible even with More filters closed
+  assert.ok(await page.isHidden("#f-clear-quick"));
+  await screen("");
+});

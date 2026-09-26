@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
-  budgetStatus, planOccurrences, cashflowForecast } from "../public/ledger.js";
+  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -316,4 +316,24 @@ test("R26: forecast couples budgets with planned cashflows month by month", () =
   // Nov: planned Ntorq 15,000 replaces its 1,000 budget.
   assert.deepEqual([f.rows[2].income, f.rows[2].expense, f.rows[2].balance], [60000, 20000, 148000]);
   assert.equal(f.rows[2].items.length, 2);
+});
+
+test("R23: old expenses without a category are grouped as Uncategorised and can be filtered", () => {
+  const entries = [
+    { ...expense("2026-09-02", "", 40), description: "chai" },
+    { ...expense("2026-09-03", "", 60), description: "snacks" },
+    expense("2026-09-04", "Groceries", 500),
+  ];
+  const r = spendingByCategory(entries, { period: "all" }, "2026-09-26");
+  assert.deepEqual(r.rows.map((x) => [x.category, x.amount, x.count]), [["Groceries", 500, 1], [UNCATEGORISED, 100, 2]]);
+  const shown = filterEntries(entries, { type: "expense", category: UNCATEGORISED }, "2026-09-26");
+  assert.deepEqual(shown.map((e) => e.description), ["chai", "snacks"]);
+});
+
+test("R26: a monthly plan keeps its day of the month (31st stays the 31st after February)", () => {
+  assert.equal(addMonths("2027-02-28", 1, 31), "2027-03-31");
+  const plan = { nextDate: "2027-01-31", repeat: "monthly", day: 31 };
+  assert.deepEqual(planOccurrences(plan, "2027-01-01", "2027-05-01"), ["2027-01-31", "2027-02-28", "2027-03-31", "2027-04-30"]);
+  // Recording moves it on from wherever it is now, aiming at its day.
+  assert.equal(addMonths(addMonths("2027-01-31", 1, 31), 1, 31), "2027-03-31");
 });

@@ -511,7 +511,8 @@ select, input[type="search"] {
   font-size: 1rem;
 }
 button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
-.filter-summary { margin: 4px 0 10px; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.summary-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 10px; }
+.filter-summary { margin: 0; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
 .month-heading { margin: 8px 0 -2px; font-size: 0.8rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 
 /* ---------- Reports menu and rows ---------- */

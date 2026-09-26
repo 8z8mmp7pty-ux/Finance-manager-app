@@ -41,8 +41,14 @@ test("R26: planned cashflows can be created, edited and deleted", { skip }, asyn
   assert.equal(created.status, 201);
   assert.deepEqual(
     { ...created.data, id: undefined },
-    { id: undefined, type: "income", category: "Salary", description: "", amount: 60000, nextDate: "2026-10-01", repeat: "monthly" }
+    { id: undefined, type: "income", category: "Salary", description: "", amount: 60000, nextDate: "2026-10-01", repeat: "monthly", day: 1 }
   );
+  const rent31 = await call(plans, "POST", "/api/plans", {
+    type: "expense", category: "Ntorq", amount: 100, nextDate: "2027-02-28", day: 31, repeat: "monthly",
+  });
+  assert.equal(rent31.data.day, 31, "an explicit day is kept even when the date is earlier in the month");
+  assert.equal((await call(plans, "POST", "/api/plans", { ...rent31.data, day: 32 })).status, 400);
+  await call(plans, "DELETE", `/api/plans?id=${rent31.data.id}`);
   const id = created.data.id;
   const moved = await call(plans, "PUT", `/api/plans?id=${id}`, { ...created.data, nextDate: "2026-11-01" });
   assert.equal(moved.data.nextDate, "2026-11-01");
