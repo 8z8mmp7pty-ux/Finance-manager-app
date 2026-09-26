@@ -377,7 +377,7 @@ test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Re
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
   assert.deepEqual(names, [
     "Mandatory Food", "Optional Food", "Ntorq", "Bills & Utilities", "Transport", "Dress",
-    "Health", "Education", "Entertainment", "Travel", "For Mom, Dad, Muthu", "Other",
+    "Health", "Education", "Entertainment", "For Mom, Dad, Muthu", "Other",
   ]);
   await page.tap('#pick-grid .category-card:has-text("For Mom, Dad, Muthu")');
   await settle();
@@ -616,7 +616,7 @@ test("R23: an old expense without a category opens from the spending report", { 
 test("R28: the Planned section shows automatic 14-day food lines from the last 30 days", { skip }, async () => {
   await screen("budget");
   const autos = await page.$$eval("#plan-list .auto-plan", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
-  assert.equal(autos.length, 6, "two food lines, Ntorq petrol and repair, Transport, Bills & Utilities");
+  assert.equal(autos.length, 8, "food ×2, Ntorq petrol and repair, Transport, Bills & Utilities, Education, Entertainment");
   // Mandatory Food: ₹300 spent today (R17/R18) → ₹10/day → ₹140 for 14 days. Optional Food: nothing yet.
   assert.match(autos[0], /Mandatory Food.*next 14 days · ₹10\.00\/day.*−₹140\.00.*Auto/);
   assert.match(autos[1], /Optional Food.*₹0\.00\/day.*−₹0\.00/);
@@ -758,6 +758,7 @@ test("R32/R33: Dress replaces Shopping; automatic Transport (3 weeks) and Bills 
   await settle();
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
   assert.ok(names.includes("Dress") && !names.includes("Shopping"));
+  assert.ok(!names.includes("Travel"), "R34: no Travel card");
   await page.tap("#wizard-back");
   await settle();
 
@@ -765,7 +766,8 @@ test("R32/R33: Dress replaces Shopping; automatic Transport (3 weeks) and Bills 
   const row = async (label) => (await page.textContent(`#plan-list .auto-plan:has-text("${label}")`)).replace(/\s+/g, " ");
   const transport = await row("Transport");
   assert.match(transport, /next 3 weeks · ₹[\d,.]+\/week \(last 3 months' average\)/);
-  const bills = await row("Bills & Utilities");
-  assert.match(bills, /next month · ₹[\d,.]+\/month \(last 3 months' average\)/);
+  for (const label of ["Bills & Utilities", "Education", "Entertainment"]) {
+    assert.match(await row(label), /next month · ₹[\d,.]+\/month \(last 3 months' average\)/, label);
+  }
   await screen("");
 });

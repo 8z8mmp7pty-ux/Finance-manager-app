@@ -489,6 +489,8 @@ export const AUTO_RULES = [
   { category: "Ntorq", subcategory: "Repair / Accessory", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
   { category: "Transport", back: { months: 3 }, unit: "week", ahead: { days: 21 } },
   { category: "Bills & Utilities", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
+  { category: "Education", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
+  { category: "Entertainment", back: { months: 3 }, unit: "month", ahead: { months: 1 } },
 ];
 
 // "next 14 days", "next 4 weeks", "last 3 months": weeks only for a per-week line.

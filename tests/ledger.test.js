@@ -425,6 +425,7 @@ test("R31: Ntorq petrol = weekly average of the last 4 weeks for the next 4 week
   );
   assert.deepEqual(autoPlans(entries, "2026-09-26").map((l) => l.subcategory || l.category), [
     "Mandatory Food", "Optional Food", "Petrol", "Repair / Accessory", "Transport", "Bills & Utilities",
+    "Education", "Entertainment",
   ]);
 });
 
@@ -477,4 +478,41 @@ test("ordering is stable when some entries have no saved time", () => {
   const c = { ...expense("2026-09-10", "Transport", 1), id: 3, createdAt: "2026-09-10T08:00:00.000Z" };
   const orders = [[a, b, c], [c, b, a], [b, a, c]].map((list) => chronological(list).map((e) => e.id).join());
   assert.equal(new Set(orders).size, 1);
+});
+
+test("R34: Education and Entertainment = monthly average over the last 3 months for the next month", () => {
+  const entries = [
+    expense("2026-09-10", "Education", 3000),
+    expense("2026-07-01", "Education", 1500),
+    expense("2026-06-20", "Education", 9000), // older than 3 months
+    expense("2026-09-25", "Entertainment", 600),
+  ];
+  const lines = autoPlans(entries, "2026-09-26");
+  const education = lines.find((l) => l.category === "Education");
+  const fun = lines.find((l) => l.category === "Entertainment");
+  assert.deepEqual([education.rate, education.amount, education.unit, education.horizon, education.basis], [1500, 1500, "month", "next month", "last 3 months"]);
+  assert.deepEqual([fun.rate, fun.amount, fun.to], [200, 200, "2026-10-26"]);
+});
+
+test("R31: look-back windows at month ends, future entries ignored, auto lines + manual plan + budget", () => {
+  const ntorq = (date, sub, amount) => ({ ...expense(date, "Ntorq", amount), subcategory: sub });
+  // 31 May: 3 months back starts 1 Mar; next month ends 30 Jun.
+  const may = autoNtorqPlans([ntorq("2026-03-01", "Repair / Accessory", 900), ntorq("2026-02-28", "Repair / Accessory", 5000)], "2026-05-31")[1];
+  assert.deepEqual([may.since, may.to, may.amount], ["2026-03-01", "2026-06-30", 300]);
+  // 31 Mar: 3 months back starts 1 Jan.
+  const mar = autoNtorqPlans([], "2026-03-31")[1];
+  assert.equal(mar.since, "2026-01-01");
+  // A petrol entry dated tomorrow is not part of the average.
+  const petrol = autoNtorqPlans([ntorq("2026-09-27", "Petrol", 800), ntorq("2026-09-26", "Petrol", 400)], "2026-09-26")[0];
+  assert.equal(petrol.spent, 400);
+
+  // Petrol 1,400 (28 days) + a manual Ntorq plan of 500 on 5 Oct, all under Ntorq.
+  const entries = [ntorq("2026-09-20", "Petrol", 1400)];
+  const lines = autoPlans(entries, "2026-09-26");
+  const plans = [{ type: "expense", category: "Ntorq", amount: 500, nextDate: "2026-10-05", repeat: "none" }];
+  const f = cashflowForecast(entries, [], plans, "2026-09-26", 2, lines);
+  assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, 1900);
+  // A larger Ntorq budget wins in October.
+  const b = cashflowForecast(entries, [{ category: "Ntorq", amount: 5000 }], plans, "2026-09-26", 2, lines);
+  assert.equal(b.rows[1].expense, 5000);
 });

@@ -44,7 +44,6 @@ const CATEGORIES = {
     { name: "Health", icon: "💊" },
     { name: "Education", icon: "📚" },
     { name: "Entertainment", icon: "🎬" },
-    { name: "Travel", icon: "✈️" },
     { name: "For Mom, Dad, Muthu", icon: "❤️" },
     { name: "Other", icon: "➖" },
   ],
@@ -53,7 +52,7 @@ const CATEGORIES = {
 const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra" };
 
 // Icons for categories that were replaced, so entries saved with them keep their look.
-const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳", "Food & Dining": "🍽️", Groceries: "🛒", Shopping: "🛍️" };
+const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳", "Food & Dining": "🍽️", Groceries: "🛒", Shopping: "🛍️", Travel: "✈️" };
 
 function categoryIcon(type, name) {
   const found = (CATEGORIES[type] || []).find((c) => c.name === name);
