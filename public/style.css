@@ -88,3 +88,16 @@ li:last-child { border-bottom: none; }
 .delete:hover { color: var(--expense); }
 .empty, .note { color: var(--muted); text-align: center; }
 .note { font-size: 0.8rem; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.header h1 { margin: 0; }
+button.link { background: transparent; color: var(--accent); padding: 4px 0; font-weight: 500; }
+button:disabled { opacity: 0.6; cursor: default; }
+.status {
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--expense);
+}
+.status.info { color: var(--muted); }

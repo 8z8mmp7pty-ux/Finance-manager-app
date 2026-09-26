@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finance Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="container">
+    <div class="header">
+      <h1>Finance Manager</h1>
+      <button id="logout" class="link" hidden>Log out</button>
+    </div>
+
+    <section id="login" class="card" hidden>
+      <h2>Enter Password</h2>
+      <form id="login-form">
+        <input id="password" type="password" placeholder="App password" required autocomplete="current-password">
+        <button type="submit">Unlock</button>
+      </form>
+    </section>
+
+    <p id="status" class="status" hidden></p>
+
+    <div id="app" hidden>
+      <section class="balance-card">
+        <p class="label">Current Balance</p>
+        <p id="balance" class="balance">₹0.00</p>
+        <div class="totals">
+          <div><span class="label">Income</span><span id="total-income" class="income">₹0.00</span></div>
+          <div><span class="label">Expenses</span><span id="total-expense" class="expense">₹0.00</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Add Entry</h2>
+        <form id="entry-form">
+          <div class="type-toggle">
+            <label><input type="radio" name="type" value="income" checked> Income</label>
+            <label><input type="radio" name="type" value="expense"> Expense</label>
+          </div>
+          <input id="description" type="text" placeholder="Description (e.g. Salary, Groceries)" required maxlength="100">
+          <div class="row">
+            <input id="amount" type="number" placeholder="Amount" min="0.01" step="0.01" required>
+            <input id="date" type="date" required>
+          </div>
+          <button type="submit">Add Entry</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Entries</h2>
+        <p id="empty" class="empty">No entries yet.</p>
+        <ul id="entries"></ul>
+      </section>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
