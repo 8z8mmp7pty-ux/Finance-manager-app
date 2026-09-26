@@ -694,7 +694,7 @@ export function availableExplanation(a, money) {
 
 // The surplus after every entry in the forecast: current balance + expected income − expected
 // payments over the next FORECAST_MONTHS months (= the forecast's closing balance), and what is
-// available to spend from it (spendable). Also reports the lowest month-end balance, in case money
+// available to spend (spendable: balance × left ÷ income). Also reports the lowest month-end balance, in case money
 // runs short before later income arrives.
 export function availableToSpend(entries, budgets, plans, today, autoLines = [], months = FORECAST_MONTHS) {
   const f = cashflowForecast(entries, budgets, plans, today, months, autoLines);

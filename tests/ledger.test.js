@@ -556,7 +556,7 @@ test("R34: Education and Entertainment auto amounts land in the forecast month b
   assert.ok(f.rows[1].expense > f.rows[0].expense * 5);
 });
 
-// ---------- Available to spend = balance × surplus ÷ income over the 3-month forecast (R36) ----------
+// ---------- Available to spend = balance × (income − payments) ÷ income over the 3-month forecast (R36) ----------
 
 test("R36: the forecast covers today to the same date 3 months ahead, month by month", () => {
   assert.equal(forecastEnd("2026-09-26"), "2026-12-25");

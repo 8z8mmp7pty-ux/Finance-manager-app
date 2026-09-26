@@ -1532,7 +1532,7 @@ function renderGrid() {
 
 reportBack.addEventListener("click", () => showReportStage(REPORT_BACK[report.stage] || "menu"));
 
-// ---------- Available to spend: the balance's share of the 3-month surplus ----------
+// ---------- Available to spend: balance × (income − payments) ÷ income over the 3-month forecast ----------
 
 function shortDate(date) {
   return new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
