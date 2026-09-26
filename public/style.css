@@ -356,3 +356,35 @@ button.danger { background: transparent; color: var(--expense); border: 1px soli
 .chip-btn { padding: 6px 12px; border-radius: 999px; background: var(--transfer-bg); color: var(--transfer); font-size: 0.85rem; }
 
 #edit-entry-fields, #edit-transfer-fields { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------- Report ---------- */
+.report-pick { min-height: 80px; }
+.month-name { font-weight: 700; font-size: 0.9rem; }
+.month-left { font-size: 0.75rem; color: var(--income); font-weight: 600; }
+.month-left.done { color: var(--muted); }
+.report-heading { margin: 4px 0 12px; font-size: 1.05rem; }
+.report-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.report-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  min-width: 0;
+}
+.tile-value { font-weight: 700; font-size: 0.95rem; overflow-wrap: anywhere; }
+.usage-bar { height: 8px; margin: 12px 0 8px; border-radius: 999px; background: var(--income-bg); overflow: hidden; }
+.usage-fill { display: block; height: 100%; background: var(--expense); border-radius: 999px; }
+.report-story { margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; }
+.report-sub { margin: 16px 0 6px; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.report-list { list-style: none; margin: 0; padding: 0; }
+.report-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.report-row:last-child { border-bottom: none; }
+.row-icon { font-size: 1.3rem; width: 28px; text-align: center; flex-shrink: 0; }
+.report-left { margin: 12px 0 0; padding: 10px; border-radius: 10px; background: var(--bg); font-weight: 600; text-align: center; }
+@media (max-width: 480px) {
+  .report-tiles { grid-template-columns: 1fr; gap: 6px; }
+  .report-tile { flex-direction: row; justify-content: space-between; align-items: baseline; padding: 8px 12px; }
+  .tile-value { font-size: 1rem; }
+}

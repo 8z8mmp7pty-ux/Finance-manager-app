@@ -40,8 +40,9 @@ function validate(body) {
   } else {
     if (!category && !description) return "Choose a category";
     toReserve = "";
-    // Every receipt pours into the reserve named after its income type.
-    if (type === "income") reserve = category || GENERAL_RESERVE;
+    // Income pours into the reserve named after its type unless another reserve is chosen;
+    // expenses are paid from General Reserve unless another reserve is chosen.
+    if (type === "income") reserve = reserve || category || GENERAL_RESERVE;
     else reserve = reserve || GENERAL_RESERVE;
   }
 

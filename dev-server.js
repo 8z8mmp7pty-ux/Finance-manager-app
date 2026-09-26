@@ -1,5 +1,5 @@
 // Local development server: serves the static files and the /api/entries function.
-// Usage: DATABASE_URL=... APP_PASSWORD=... npm run dev
+// Usage: DATABASE_URL=... npm run dev
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,7 +8,7 @@ import entries from "./api/entries.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript" };
-const publicFiles = new Set(["/index.html", "/style.css", "/app.js"]);
+const publicFiles = new Set(["/index.html", "/style.css", "/app.js", "/ledger.js"]);
 
 http
   .createServer(async (req, res) => {

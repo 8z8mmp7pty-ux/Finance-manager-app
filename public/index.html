@@ -76,7 +76,7 @@
           </button>
 
           <div id="pay-from" class="field-group" hidden>
-            <span class="field-label">Paid from reserve</span>
+            <span class="field-label" id="pay-from-label">Paid from reserve</span>
             <div class="chips" id="pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
           </div>
 
@@ -95,6 +95,14 @@
         </form>
 
         <p id="posted" class="posted" hidden></p>
+      </section>
+
+      <section class="card report" id="report">
+        <div class="wizard-header">
+          <button type="button" id="report-back" class="back-btn" aria-label="Back" hidden>←</button>
+          <h2 id="report-title">Reports</h2>
+        </div>
+        <div id="report-body"></div>
       </section>
 
       <section>
@@ -119,7 +127,7 @@
         </div>
         <div class="category-grid compact" id="edit-categories" role="radiogroup" aria-label="Category"></div>
         <div id="edit-pay-from" class="field-group">
-          <span class="field-label">Paid from reserve</span>
+          <span class="field-label" id="edit-pay-from-label">Paid from reserve</span>
           <div class="chips" id="edit-pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
         </div>
       </div>
@@ -146,6 +154,6 @@
     </form>
   </dialog>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

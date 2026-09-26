@@ -1,4 +1,4 @@
-const GENERAL = "General Reserve";
+import { GENERAL, reserveBalances, reserveMonths, reserveReport } from "./ledger.js";
 
 const CATEGORIES = {
   income: [
@@ -100,34 +100,11 @@ function el(tag, className, textContent) {
 
 // ---------- Reserves ----------
 
-// Balance of every reserve, plus how much flowed in this month.
+// Balance of every reserve (General Reserve first, then income types), plus this month's inflow.
 function computeReserves() {
-  const month = today().slice(0, 7);
-  const reserves = new Map([[GENERAL, { balance: 0, monthIn: 0 }]]);
-  const get = (name) => {
-    if (!reserves.has(name)) reserves.set(name, { balance: 0, monthIn: 0 });
-    return reserves.get(name);
-  };
-  for (const e of entries) {
-    const inMonth = e.date.startsWith(month);
-    if (e.type === "income") {
-      const r = get(e.reserve || GENERAL);
-      r.balance += e.amount;
-      if (inMonth) r.monthIn += e.amount;
-    } else if (e.type === "expense") {
-      get(e.reserve || GENERAL).balance -= e.amount;
-    } else if (e.type === "transfer") {
-      get(e.reserve).balance -= e.amount;
-      const to = get(e.toReserve);
-      to.balance += e.amount;
-      if (inMonth) to.monthIn += e.amount;
-    }
-  }
   const order = [GENERAL, ...CATEGORIES.income.map((c) => c.name)];
   const rank = (name) => (order.includes(name) ? order.indexOf(name) : order.length);
-  return [...reserves.entries()]
-    .map(([name, r]) => ({ name, balance: Math.round(r.balance * 100) / 100, monthIn: r.monthIn }))
-    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+  return reserveBalances(entries, today()).sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
 }
 
 function reserveBalance(name) {
@@ -152,9 +129,15 @@ function renderReserves() {
 }
 
 // Reserve chips: a row of tappable reserve buttons, one selected.
-function renderReserveChips(container, selected, onSelect, exclude) {
+// `first` puts that reserve first, adding it if it has no money yet (e.g. a new income type).
+function renderReserveChips(container, selected, onSelect, exclude, first) {
   container.innerHTML = "";
-  for (const r of computeReserves()) {
+  let options = computeReserves();
+  if (first) {
+    const existing = options.find((r) => r.name === first) || { name: first, balance: 0 };
+    options = [existing, ...options.filter((r) => r.name !== first)];
+  }
+  for (const r of options) {
     if (r.name === exclude) continue;
     const chip = el("button", "chip");
     chip.type = "button";
@@ -190,7 +173,11 @@ function render() {
       title = entry.category || entry.description;
       iconText = categoryIcon(entry.type, entry.category);
       const via =
-        entry.type === "expense" && entry.reserve && entry.reserve !== GENERAL ? "from " + entry.reserve : "";
+        entry.type === "expense" && entry.reserve && entry.reserve !== GENERAL
+          ? "from " + entry.reserve
+          : entry.type === "income" && entry.reserve && entry.reserve !== entry.category
+          ? "into " + entry.reserve
+          : "";
       meta = [note, via, formatDate(entry.date)];
     }
     card.setAttribute("aria-label", `${title}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
@@ -219,6 +206,7 @@ function render() {
   balanceEl.textContent = currency.format(balance);
   balanceEl.className = "balance " + (balance < 0 ? "expense" : "");
   renderReserves();
+  renderReport();
 }
 
 function sortEntries() {
@@ -300,6 +288,8 @@ function goToStage(stage, direction = "forward") {
       CATEGORIES[draft.flow].map((c) => ({ key: c.name, icon: c.icon, name: c.name })),
       (name) => {
         draft.category = name;
+        // Income goes into its own reserve unless you pick another one on the next step.
+        if (draft.flow === "income") draft.reserve = name;
         goToStage("amount");
       }
     );
@@ -360,17 +350,25 @@ function showAmountStage() {
     postBtn.textContent = "Post " + TYPE_LABEL[draft.flow];
   }
 
-  payFrom.hidden = draft.flow !== "expense";
-  if (draft.flow === "expense") renderPayFrom();
+  payFrom.hidden = draft.flow === "transfer";
+  if (draft.flow !== "transfer") renderPayFrom();
   transferAvailable.hidden = draft.flow !== "transfer";
   amountInput.focus();
 }
 
 function renderPayFrom() {
-  renderReserveChips(payFromChips, draft.reserve, (name) => {
-    draft.reserve = name;
-    renderPayFrom();
-  });
+  const isIncome = draft.flow === "income";
+  document.getElementById("pay-from-label").textContent = isIncome ? "Goes into reserve" : "Paid from reserve";
+  renderReserveChips(
+    payFromChips,
+    draft.reserve,
+    (name) => {
+      draft.reserve = name;
+      renderPayFrom();
+    },
+    null,
+    isIncome ? draft.category : GENERAL
+  );
 }
 
 function startFlow(flow) {
@@ -436,7 +434,7 @@ amountForm.addEventListener("submit", async (event) => {
     body = { type: "transfer", reserve: draft.from, toReserve: draft.to };
   } else {
     if (!draft.category) return;
-    body = { type: draft.flow, category: draft.category, reserve: draft.flow === "expense" ? draft.reserve : "" };
+    body = { type: draft.flow, category: draft.category, reserve: draft.reserve };
   }
   Object.assign(body, { description: noteInput.value.trim(), amount, date: dateInput.value || today() });
 
@@ -511,19 +509,26 @@ function renderEditFields() {
     icon.setAttribute("aria-hidden", "true");
     btn.append(icon, el("span", "category-name", cat.name));
     btn.addEventListener("click", () => {
+      // An income that was in its own type's reserve follows the new type.
+      if (type === "income" && edit.reserve === (edit.category || GENERAL)) edit.reserve = cat.name;
       edit.category = cat.name;
       renderEditFields();
     });
     editCategories.append(btn);
   }
 
-  editPayFrom.hidden = type !== "expense";
-  if (type === "expense") {
-    renderReserveChips(document.getElementById("edit-pay-from-chips"), edit.reserve, (name) => {
+  document.getElementById("edit-pay-from-label").textContent =
+    type === "income" ? "Goes into reserve" : "Paid from reserve";
+  renderReserveChips(
+    document.getElementById("edit-pay-from-chips"),
+    edit.reserve,
+    (name) => {
       edit.reserve = name;
       renderEditFields();
-    });
-  }
+    },
+    null,
+    type === "income" ? edit.category || GENERAL : GENERAL
+  );
 }
 
 function openEditor(entry) {
@@ -531,7 +536,7 @@ function openEditor(entry) {
     id: entry.id,
     isTransfer: entry.type === "transfer",
     category: entry.category,
-    reserve: entry.type === "expense" ? entry.reserve || GENERAL : GENERAL,
+    reserve: entry.type === "transfer" ? GENERAL : entry.reserve || entry.category || GENERAL,
     from: entry.type === "transfer" ? entry.reserve : "",
     to: entry.type === "transfer" ? entry.toReserve : "",
   });
@@ -557,6 +562,7 @@ function closeEditor() {
 editForm.querySelectorAll("input[name=type]").forEach((radio) => {
   radio.addEventListener("change", () => {
     if (!CATEGORIES[radio.value].some((c) => c.name === edit.category)) edit.category = "";
+    edit.reserve = radio.value === "income" ? edit.category || GENERAL : GENERAL;
     renderEditFields();
   });
 });
@@ -587,7 +593,7 @@ editForm.addEventListener("submit", async (event) => {
       return;
     }
     const type = editForm.elements.type.value;
-    body = { type, category: edit.category, reserve: type === "expense" ? edit.reserve : "" };
+    body = { type, category: edit.category, reserve: edit.reserve };
   }
   Object.assign(body, { description: note, amount, date: editDate.value });
 
@@ -625,6 +631,166 @@ editDelete.addEventListener("click", async () => {
     showStatus(err.message);
   }
 });
+
+// ---------- Report: what happened to a month's money? ----------
+
+const reportBody = document.getElementById("report-body");
+const reportTitle = document.getElementById("report-title");
+const reportBack = document.getElementById("report-back");
+const report = { stage: "reserve", reserve: null, month: null };
+
+function monthLabel(month) {
+  return new Date(month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+function moneyName(reserve, month) {
+  return reserve === GENERAL ? `${GENERAL} money of ${monthLabel(month)}` : `${reserve} of ${monthLabel(month)}`;
+}
+
+function showReportStage(stage) {
+  report.stage = stage;
+  renderReport();
+}
+
+function renderReport() {
+  reportBody.innerHTML = "";
+  reportBack.hidden = report.stage === "reserve";
+
+  if (report.stage === "reserve") {
+    reportTitle.textContent = "Reports";
+    reportBody.append(el("p", "step-hint", "What happened to my money? Pick a reserve."));
+    const grid = el("div", "category-grid");
+    for (const r of computeReserves()) {
+      if (!reserveMonths(entries, r.name).length) continue;
+      const btn = el("button", "category-card report-pick");
+      btn.type = "button";
+      btn.append(el("span", "category-icon", reserveIcon(r.name)), el("span", "category-name", r.name));
+      btn.addEventListener("click", () => {
+        report.reserve = r.name;
+        showReportStage("month");
+      });
+      grid.append(btn);
+    }
+    if (!grid.children.length) reportBody.append(el("p", "empty", "Add some income to see reports."));
+    else reportBody.append(grid);
+    return;
+  }
+
+  if (report.stage === "month") {
+    reportTitle.textContent = report.reserve;
+    reportBody.append(el("p", "step-hint", "Which month's money?"));
+    const grid = el("div", "category-grid");
+    for (const m of reserveMonths(entries, report.reserve)) {
+      const btn = el("button", "category-card report-pick");
+      btn.type = "button";
+      btn.append(
+        el("span", "category-name month-name", monthLabel(m.month)),
+        el("span", "category-sub", currency.format(m.received) + " in"),
+        el("span", "month-left" + (m.remaining > 0 ? "" : " done"), m.remaining > 0 ? currency.format(m.remaining) + " left" : "Fully used")
+      );
+      btn.addEventListener("click", () => {
+        report.month = m.month;
+        showReportStage("view");
+      });
+      grid.append(btn);
+    }
+    if (!grid.children.length) {
+      report.stage = "reserve";
+      return renderReport();
+    }
+    reportBody.append(grid);
+    return;
+  }
+
+  // Report view
+  const r = reserveReport(entries, report.reserve, report.month);
+  if (!r.lots.length) {
+    report.stage = "month";
+    return renderReport();
+  }
+  reportTitle.textContent = "Report";
+  reportBody.append(el("h3", "report-heading", "What happened to " + moneyName(r.reserve, r.month) + "?"));
+
+  const tiles = el("div", "report-tiles");
+  for (const [label, value, cls] of [
+    ["Received", r.received, "income"],
+    ["Used", r.used, "expense"],
+    ["Left", r.remaining, ""],
+  ]) {
+    const tile = el("div", "report-tile");
+    tile.append(el("span", "label", label), el("span", "tile-value " + cls, currency.format(value)));
+    tiles.append(tile);
+  }
+  reportBody.append(tiles);
+
+  const bar = el("div", "usage-bar");
+  const fill = el("span", "usage-fill");
+  fill.style.width = (r.received ? Math.min(100, (r.used / r.received) * 100) : 0) + "%";
+  bar.append(fill);
+  reportBody.append(bar);
+
+  // Story: when it started being used and when it ran out.
+  const story = [];
+  if (!r.firstUsedOn) {
+    story.push("Not used yet.");
+    if (r.earlierMoneyLeft > 0) {
+      story.push(`Older money (${currency.format(r.earlierMoneyLeft)}) in this reserve is used first.`);
+    }
+  } else {
+    story.push(
+      `First used on ${formatDate(r.firstUsedOn)}` +
+        (r.hadEarlierMoney ? ", after the older money in this reserve was used up." : ".")
+    );
+    if (r.exhaustedOn) story.push(`Fully used by ${formatDate(r.exhaustedOn)}.`);
+  }
+  reportBody.append(el("p", "report-story", story.join(" ")));
+
+  reportBody.append(el("h4", "report-sub", "Money in"));
+  const ins = el("ul", "report-list");
+  for (const lot of r.lots) {
+    const li = el("li", "report-row");
+    const name = lot.entry.type === "transfer" ? lot.label : lot.label + (lot.entry.description && lot.entry.category ? " · " + lot.entry.description : "");
+    const info = el("div", "entry-info");
+    info.append(el("p", "entry-desc", name), el("p", "entry-date", formatDate(lot.date)));
+    li.append(el("span", "row-icon", lot.entry.type === "transfer" ? "⇄" : categoryIcon("income", lot.entry.category)), info, el("span", "entry-amount income", "+" + currency.format(lot.amount)));
+    ins.append(li);
+  }
+  reportBody.append(ins);
+
+  reportBody.append(el("h4", "report-sub", "Where it went"));
+  if (!r.items.length) {
+    reportBody.append(el("p", "empty", "Nothing has been spent from it yet."));
+  } else {
+    const outs = el("ul", "report-list");
+    for (const item of r.items) {
+      const e = item.entry;
+      const li = el("li", "report-row");
+      const title = e.type === "transfer" ? "Transferred to " + e.toReserve : e.category || e.description;
+      const details = [formatDate(e.date)];
+      if (e.type !== "transfer" && e.category && e.description) details.unshift(e.description);
+      if (item.amount < e.amount) {
+        let split = `${currency.format(item.amount)} of ${currency.format(e.amount)}`;
+        const others = item.otherSources.map((o) => `${currency.format(o.amount)} from ${moneyName(o.reserve, o.month)}`);
+        if (item.uncovered > 0) others.push(`${currency.format(item.uncovered)} not covered yet`);
+        if (others.length) split += " — " + others.join(", ");
+        details.push(split);
+      }
+      if (item.before) details.push("spent before this money arrived");
+      const info = el("div", "entry-info");
+      info.append(el("p", "entry-desc", title), el("p", "entry-date", details.join(" · ")));
+      const icon = e.type === "transfer" ? "⇄" : categoryIcon("expense", e.category);
+      li.append(el("span", "row-icon", icon), info, el("span", "entry-amount " + e.type, (e.type === "expense" ? "−" : "") + currency.format(item.amount)));
+      outs.append(li);
+    }
+    reportBody.append(outs);
+  }
+
+  const left = el("p", "report-left");
+  left.textContent = r.remaining > 0 ? `${currency.format(r.remaining)} of it is still in ${reserveLabel(r.reserve)}.` : "All of it has been used.";
+  reportBody.append(left);
+}
+
+reportBack.addEventListener("click", () => showReportStage(report.stage === "view" ? "month" : "reserve"));
 
 dateInput.value = today();
 goToStage("type");
