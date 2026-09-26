@@ -6,6 +6,8 @@
 // covered by the next lot that arrives.
 
 export const GENERAL = "General Reserve";
+export const DEFAULT_ACCOUNT = "Super Money";
+export const ACCOUNTS = ["Super Money", "GPay", "Cash"];
 
 const EPSILON = 0.004;
 
@@ -189,4 +191,47 @@ export function reserveReport(entries, reserve, month) {
     hadEarlierMoney: earlierLots.length > 0,
     earlierMoneyLeft: round(earlierLots.reduce((s, l) => s + l.remaining, 0)),
   };
+}
+
+// How each entry moves money between (reserve, account) cells.
+function movements(e) {
+  const account = e.account || DEFAULT_ACCOUNT;
+  if (e.type === "income") return [[e.reserve || GENERAL, account, e.amount]];
+  if (e.type === "expense") return [[e.reserve || GENERAL, account, -e.amount]];
+  if (e.type === "transfer") return [[e.reserve, account, -e.amount], [e.toReserve, account, e.amount]];
+  if (e.type === "contra") return [[e.reserve || GENERAL, account, -e.amount], [e.reserve || GENERAL, e.toAccount, e.amount]];
+  return [];
+}
+
+// Grid of reserves (rows) x accounts (columns). Row totals are reserve balances, column totals
+// are account balances, and the grand total is the overall balance.
+export function reserveAccountGrid(entries) {
+  const cells = new Map();
+  const reserves = new Set([GENERAL]);
+  const accounts = new Set(ACCOUNTS);
+  for (const e of entries) {
+    for (const [reserve, account, amount] of movements(e)) {
+      reserves.add(reserve);
+      accounts.add(account);
+      const key = reserve + "|" + account;
+      cells.set(key, round((cells.get(key) || 0) + amount));
+    }
+  }
+  const cell = (reserve, account) => cells.get(reserve + "|" + account) || 0;
+  const accountList = [...accounts];
+  const reserveList = [...reserves];
+  const rowTotals = Object.fromEntries(
+    reserveList.map((r) => [r, round(accountList.reduce((s, a) => s + cell(r, a), 0))])
+  );
+  const columnTotals = Object.fromEntries(
+    accountList.map((a) => [a, round(reserveList.reduce((s, r) => s + cell(r, a), 0))])
+  );
+  const total = round(Object.values(columnTotals).reduce((s, v) => s + v, 0));
+  return { reserves: reserveList, accounts: accountList, cell, rowTotals, columnTotals, total };
+}
+
+// Balance of every account (the default accounts always appear).
+export function accountBalances(entries) {
+  const grid = reserveAccountGrid(entries);
+  return grid.accounts.map((name) => ({ name, balance: grid.columnTotals[name] }));
 }

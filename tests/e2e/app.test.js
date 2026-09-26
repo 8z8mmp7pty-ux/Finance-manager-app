@@ -40,6 +40,9 @@ const cards = (n) => page.waitForFunction((n) => document.querySelectorAll(".ent
 const reserve = async (name) =>
   page.$eval(`.reserve-card[aria-label^="${name}"] .reserve-balance`, (e) => e.textContent);
 
+const account = async (name) =>
+  page.$eval(`.account-card[aria-label^="${name}"] .account-balance`, (e) => e.textContent);
+
 async function addEntry(flow, category, amount, { date, reserve: into } = {}) {
   await page.tap(`.type-card[data-flow=${flow}]`);
   await settle();
@@ -155,4 +158,55 @@ test("R9: an income's reserve can be changed in the editor", { skip }, async () 
   assert.equal(await page.locator('.reserve-card[aria-label^="Gift"]').count(), 0);
   assert.equal(await reserve("General Reserve"), "₹46,300.00");
   assert.equal(await page.textContent("#balance"), "₹46,300.00");
+});
+
+test("R17/R18: payments default to Super Money; another account can be chosen", { skip }, async () => {
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Groceries")');
+  await settle();
+  assert.equal(await page.textContent("#account-label"), "Paid from account");
+  assert.equal(
+    await page.$eval('#account-chips .chip[aria-checked="true"] .chip-name', (e) => e.textContent),
+    "Super Money"
+  );
+  await page.tap('#account-chips .chip:has-text("GPay")');
+  await page.fill("#amount", "300");
+  await page.tap("#post-btn");
+  await cards(9);
+  assert.equal(await account("GPay"), "-₹300");
+  assert.equal(await account("Super Money"), "₹46,300");
+});
+
+test("R19: contra moves money between accounts without changing reserves or the balance", { skip }, async () => {
+  await page.tap('.account-card[aria-label^="Super Money"]');
+  await settle();
+  assert.equal(await page.textContent("#wizard-title"), "Contra");
+  await page.tap('#pick-grid .category-card:has-text("Cash")');
+  await settle();
+  assert.equal(
+    await page.$eval('#pay-from-chips .chip[aria-checked="true"] .chip-name', (e) => e.textContent),
+    "General Reserve"
+  );
+  await page.fill("#amount", "5000");
+  await page.tap("#post-btn");
+  await cards(10);
+  assert.equal(await account("Super Money"), "₹41,300");
+  assert.equal(await account("Cash"), "₹5,000");
+  assert.equal(await reserve("General Reserve"), "₹46,000.00");
+  assert.equal(await page.textContent("#balance"), "₹46,000.00");
+  assert.match(await page.textContent(".entry-card.contra"), /Super Money → Cash/);
+});
+
+test("R20: grid report of reserves × accounts adds up", { skip }, async () => {
+  await page.tap("#report .grid-card");
+  const rows = await page.$$eval(".grid-table tr", (trs) =>
+    trs.map((tr) => [...tr.children].map((c) => c.innerText.replace(/\s+/g, " ").trim()))
+  );
+  assert.deepEqual(rows[0], ["Reserve", "Super Money", "GPay", "Cash", "Total"]);
+  const general = rows.find((r) => r[0].includes("General Reserve"));
+  assert.deepEqual(general.slice(1), ["₹41,300", "-₹300", "₹5,000", "₹46,000"]);
+  const total = rows[rows.length - 1];
+  assert.deepEqual(total, ["Total", "₹41,300", "-₹300", "₹5,000", "₹46,000"]);
+  await page.tap("#report-back");
 });

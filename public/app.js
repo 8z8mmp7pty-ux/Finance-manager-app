@@ -1,4 +1,12 @@
-import { GENERAL, reserveBalances, reserveMonths, reserveReport } from "./ledger.js";
+import {
+  GENERAL,
+  DEFAULT_ACCOUNT,
+  reserveBalances,
+  reserveMonths,
+  reserveReport,
+  reserveAccountGrid,
+  accountBalances,
+} from "./ledger.js";
 
 const CATEGORIES = {
   income: [
@@ -28,7 +36,7 @@ const CATEGORIES = {
   ],
 };
 
-const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer" };
+const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra" };
 
 function categoryIcon(type, name) {
   const found = (CATEGORIES[type] || []).find((c) => c.name === name);
@@ -39,6 +47,12 @@ function reserveIcon(name) {
   if (name === GENERAL) return "🛡️";
   const found = CATEGORIES.income.find((c) => c.name === name);
   return found ? found.icon : "🪣";
+}
+
+const ACCOUNT_ICONS = { "Super Money": "🏦", GPay: "📱", Cash: "💵" };
+
+function accountIcon(name) {
+  return ACCOUNT_ICONS[name] || "🏧";
 }
 
 function reserveLabel(name) {
@@ -53,8 +67,13 @@ const balanceEl = document.getElementById("balance");
 const incomeEl = document.getElementById("total-income");
 const expenseEl = document.getElementById("total-expense");
 const reservesEl = document.getElementById("reserves");
+const accountsEl = document.getElementById("accounts");
 
 const currency = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+// Drops ".00" for whole rupees, for tight spaces (account cards, grid).
+const compactCurrency = new Intl.NumberFormat("en-IN", {
+  style: "currency", currency: "INR", minimumFractionDigits: 0, maximumFractionDigits: 2,
+});
 
 let entries = [];
 
@@ -98,15 +117,29 @@ function el(tag, className, textContent) {
   return node;
 }
 
-// ---------- Reserves ----------
+// ---------- Reserves and accounts ----------
 
 // Balance of every reserve (General Reserve first, then income types), plus this month's inflow.
 // `skipId` leaves one entry out, so the editor shows balances without the entry being edited.
 function computeReserves(skipId = null) {
   const order = [GENERAL, ...CATEGORIES.income.map((c) => c.name)];
   const rank = (name) => (order.includes(name) ? order.indexOf(name) : order.length);
-  const counted = skipId === null ? entries : entries.filter((e) => e.id !== skipId);
-  return reserveBalances(counted, today()).sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+  return reserveBalances(without(skipId), today()).sort(
+    (a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)
+  );
+}
+
+function without(skipId) {
+  return skipId === null ? entries : entries.filter((e) => e.id !== skipId);
+}
+
+function computeAccounts(skipId = null) {
+  return accountBalances(without(skipId));
+}
+
+// Money of one reserve held in one account.
+function cellBalance(reserve, account, skipId = null) {
+  return reserveAccountGrid(without(skipId)).cell(reserve, account);
 }
 
 function reserveBalance(name) {
@@ -130,32 +163,88 @@ function renderReserves() {
   }
 }
 
-// Reserve chips: a row of tappable reserve buttons, one selected.
-// `first` puts that reserve first, adding it if it has no money yet (e.g. a new income type).
-function renderReserveChips(container, selected, onSelect, exclude, first, skipId = null) {
+function renderAccounts() {
+  accountsEl.innerHTML = "";
+  for (const a of computeAccounts()) {
+    const card = el("button", "account-card");
+    card.type = "button";
+    card.setAttribute("aria-label", `${a.name}: ${currency.format(a.balance)}. Tap for a contra entry`);
+    card.append(
+      el("span", "account-icon", accountIcon(a.name)),
+      el("span", "account-name", a.name),
+      el("span", "account-balance" + (a.balance < 0 ? " expense" : ""), compactCurrency.format(a.balance))
+    );
+    card.addEventListener("click", () => startContraFrom(a.name));
+    accountsEl.append(card);
+  }
+}
+
+function renderChips(container, options, { selected, onSelect, exclude }) {
   container.innerHTML = "";
+  for (const o of options) {
+    if (o.name === exclude) continue;
+    const chip = el("button", "chip");
+    chip.type = "button";
+    chip.setAttribute("role", "radio");
+    chip.setAttribute("aria-checked", String(o.name === selected));
+    chip.append(
+      el("span", "chip-icon", o.icon),
+      el("span", "chip-name", o.name),
+      el("span", "chip-amount" + (o.amount < 0 ? " expense" : ""), currency.format(o.amount))
+    );
+    chip.addEventListener("click", () => onSelect(o.name));
+    container.append(chip);
+  }
+}
+
+// Reserve chips. `first` puts that reserve first, adding it if it has no money yet (e.g. a new
+// income type). `amountFor` overrides the amount shown (e.g. the reserve's money in one account).
+function renderReserveChips(container, { selected, onSelect, exclude, first, skipId = null, amountFor }) {
   let options = computeReserves(skipId);
   if (first) {
     const existing = options.find((r) => r.name === first) || { name: first, balance: 0 };
     options = [existing, ...options.filter((r) => r.name !== first)];
   }
-  for (const r of options) {
-    if (r.name === exclude) continue;
-    const chip = el("button", "chip");
-    chip.type = "button";
-    chip.setAttribute("role", "radio");
-    chip.setAttribute("aria-checked", String(r.name === selected));
-    chip.append(
-      el("span", "chip-icon", reserveIcon(r.name)),
-      el("span", "chip-name", r.name),
-      el("span", "chip-amount" + (r.balance < 0 ? " expense" : ""), currency.format(r.balance))
-    );
-    chip.addEventListener("click", () => onSelect(r.name));
-    container.append(chip);
-  }
+  renderChips(
+    container,
+    options.map((r) => ({ name: r.name, icon: reserveIcon(r.name), amount: amountFor ? amountFor(r.name) : r.balance })),
+    { selected, onSelect, exclude }
+  );
+}
+
+function renderAccountChips(container, { selected, onSelect, exclude, skipId = null, amountFor }) {
+  renderChips(
+    container,
+    computeAccounts(skipId).map((a) => ({ name: a.name, icon: accountIcon(a.name), amount: amountFor ? amountFor(a.name) : a.balance })),
+    { selected, onSelect, exclude }
+  );
 }
 
 // ---------- Entries list ----------
+
+function describe(entry) {
+  const account = entry.account || DEFAULT_ACCOUNT;
+  const accountNote = account !== DEFAULT_ACCOUNT ? account : "";
+  if (entry.type === "transfer") {
+    return { title: `${entry.reserve} → ${entry.toReserve}`, icon: "⇄", meta: [entry.description, accountNote] };
+  }
+  if (entry.type === "contra") {
+    const reserveNote = entry.reserve && entry.reserve !== GENERAL ? entry.reserve + " money" : "";
+    return { title: `${account} → ${entry.toAccount}`, icon: "🔁", meta: [entry.description, reserveNote] };
+  }
+  const note = entry.category ? entry.description : "";
+  const via =
+    entry.type === "expense" && entry.reserve && entry.reserve !== GENERAL
+      ? "from " + entry.reserve
+      : entry.type === "income" && entry.reserve && entry.reserve !== entry.category
+      ? "into " + entry.reserve
+      : "";
+  return {
+    title: entry.category || entry.description,
+    icon: categoryIcon(entry.type, entry.category),
+    meta: [note, via, accountNote],
+  };
+}
 
 function render() {
   list.innerHTML = "";
@@ -164,30 +253,13 @@ function render() {
     const li = document.createElement("li");
     const card = el("button", "entry-card " + entry.type);
     card.type = "button";
-
-    let title, meta, iconText;
-    const note = entry.category || entry.type === "transfer" ? entry.description : "";
-    if (entry.type === "transfer") {
-      title = `${entry.reserve} → ${entry.toReserve}`;
-      iconText = "⇄";
-      meta = [note, formatDate(entry.date)];
-    } else {
-      title = entry.category || entry.description;
-      iconText = categoryIcon(entry.type, entry.category);
-      const via =
-        entry.type === "expense" && entry.reserve && entry.reserve !== GENERAL
-          ? "from " + entry.reserve
-          : entry.type === "income" && entry.reserve && entry.reserve !== entry.category
-          ? "into " + entry.reserve
-          : "";
-      meta = [note, via, formatDate(entry.date)];
-    }
+    const { title, icon: iconText, meta } = describe(entry);
     card.setAttribute("aria-label", `${title}, ${entry.type}, ${currency.format(entry.amount)}. Tap to edit`);
 
     const icon = el("span", "type-icon", iconText);
     icon.setAttribute("aria-hidden", "true");
     const info = el("div", "entry-info");
-    info.append(el("p", "entry-desc", title), el("p", "entry-date", meta.filter(Boolean).join(" · ")));
+    info.append(el("p", "entry-desc", title), el("p", "entry-date", [...meta, formatDate(entry.date)].filter(Boolean).join(" · ")));
     const sign = entry.type === "income" ? "+" : entry.type === "expense" ? "−" : "";
     const amount = el("span", "entry-amount " + entry.type, sign + currency.format(entry.amount));
 
@@ -207,6 +279,7 @@ function render() {
   expenseEl.textContent = currency.format(expense);
   balanceEl.textContent = currency.format(balance);
   balanceEl.className = "balance " + (balance < 0 ? "expense" : "");
+  renderAccounts();
   renderReserves();
   renderReport();
 }
@@ -234,6 +307,7 @@ const FLOWS = {
   income: ["type", "category", "amount"],
   expense: ["type", "category", "amount"],
   transfer: ["type", "from", "to", "amount"],
+  contra: ["type", "fromAccount", "toAccount", "amount"],
 };
 
 const wizard = document.getElementById("wizard");
@@ -249,17 +323,20 @@ const noteInput = document.getElementById("note");
 const dateInput = document.getElementById("date");
 const postBtn = document.getElementById("post-btn");
 const postedMsg = document.getElementById("posted");
+const accountGroup = document.getElementById("account-group");
+const accountChips = document.getElementById("account-chips");
 const payFrom = document.getElementById("pay-from");
 const payFromChips = document.getElementById("pay-from-chips");
 const transferAvailable = document.getElementById("transfer-available");
 const availableText = document.getElementById("available-text");
+const moveAllBtn = document.getElementById("transfer-all");
 
-const draft = { flow: null, index: 0, category: null, reserve: GENERAL, from: null, to: null };
+const EMPTY_DRAFT = {
+  flow: null, index: 0, category: null, reserve: GENERAL, from: null, to: null,
+  account: DEFAULT_ACCOUNT, fromAccount: null, toAccount: null,
+};
+const draft = { ...EMPTY_DRAFT };
 let postedTimer;
-
-function currentStage() {
-  return draft.flow ? FLOWS[draft.flow][draft.index] : "type";
-}
 
 function goToStage(stage, direction = "forward") {
   const stages = draft.flow ? FLOWS[draft.flow] : ["type", "category", "amount"];
@@ -313,6 +390,24 @@ function goToStage(stage, direction = "forward") {
         }
       }
     );
+  } else if (stage === "fromAccount" || stage === "toAccount") {
+    wizardTitle.textContent = "Contra";
+    pickHint.textContent =
+      stage === "fromAccount" ? "Take money out of which account?" : `Move from ${draft.fromAccount} into which account?`;
+    const accounts = computeAccounts().filter((a) => stage === "fromAccount" || a.name !== draft.fromAccount);
+    renderPickCards(
+      accounts.map((a) => ({ key: a.name, icon: accountIcon(a.name), name: a.name, sub: currency.format(a.balance) })),
+      (name) => {
+        if (stage === "fromAccount") {
+          if (draft.toAccount === name) draft.toAccount = null;
+          draft.fromAccount = name;
+          goToStage("toAccount");
+        } else {
+          draft.toAccount = name;
+          goToStage("amount");
+        }
+      }
+    );
   } else {
     showAmountStage();
   }
@@ -332,65 +427,99 @@ function renderPickCards(items, onPick) {
   }
 }
 
+// How much "Transfer all" / "Move all" can move for the current draft.
+function draftAvailable() {
+  if (draft.flow === "transfer") return cellBalance(draft.from, draft.account);
+  if (draft.flow === "contra") return cellBalance(draft.reserve, draft.fromAccount);
+  return 0;
+}
+
 function showAmountStage() {
   const chosenIcon = document.getElementById("chosen-icon");
   const chosenType = document.getElementById("chosen-type");
   const chosenCategory = document.getElementById("chosen-category");
+  const flow = draft.flow;
 
-  if (draft.flow === "transfer") {
-    wizardTitle.textContent = "Transfer";
+  wizardTitle.textContent = flow === "transfer" || flow === "contra" ? TYPE_LABEL[flow] : "Amount";
+  chosenType.textContent = TYPE_LABEL[flow];
+  if (flow === "transfer") {
     chosenIcon.textContent = "⇄";
-    chosenType.textContent = "Transfer";
     chosenCategory.textContent = `${draft.from} → ${draft.to}`;
-    availableText.textContent = `Available in ${draft.from}: ${currency.format(reserveBalance(draft.from))}`;
     postBtn.textContent = "Transfer";
+  } else if (flow === "contra") {
+    chosenIcon.textContent = "🔁";
+    chosenCategory.textContent = `${draft.fromAccount} → ${draft.toAccount}`;
+    postBtn.textContent = "Post Contra";
   } else {
-    wizardTitle.textContent = "Amount";
-    chosenIcon.textContent = categoryIcon(draft.flow, draft.category);
-    chosenType.textContent = TYPE_LABEL[draft.flow];
+    chosenIcon.textContent = categoryIcon(flow, draft.category);
     chosenCategory.textContent = draft.category;
-    postBtn.textContent = "Post " + TYPE_LABEL[draft.flow];
+    postBtn.textContent = "Post " + TYPE_LABEL[flow];
   }
 
-  payFrom.hidden = draft.flow === "transfer";
-  if (draft.flow !== "transfer") renderPayFrom();
-  transferAvailable.hidden = draft.flow !== "transfer";
+  accountGroup.hidden = flow === "contra";
+  payFrom.hidden = flow === "transfer";
+  transferAvailable.hidden = flow !== "transfer" && flow !== "contra";
+  moveAllBtn.textContent = flow === "contra" ? "Move all" : "Transfer all";
+  renderAmountChoices();
   amountInput.focus();
 }
 
-function renderPayFrom() {
-  const isIncome = draft.flow === "income";
-  document.getElementById("pay-from-label").textContent = isIncome ? "Goes into reserve" : "Paid from reserve";
-  renderReserveChips(
-    payFromChips,
-    draft.reserve,
-    (name) => {
-      draft.reserve = name;
-      renderPayFrom();
-    },
-    null,
-    isIncome ? draft.category : GENERAL
-  );
+function renderAmountChoices() {
+  const flow = draft.flow;
+  if (flow !== "contra") {
+    document.getElementById("account-label").textContent =
+      flow === "income" ? "Received in account" : flow === "expense" ? "Paid from account" : "In account";
+    renderAccountChips(accountChips, {
+      selected: draft.account,
+      onSelect: (name) => {
+        draft.account = name;
+        renderAmountChoices();
+      },
+      amountFor: flow === "transfer" ? (a) => cellBalance(draft.from, a) : undefined,
+    });
+  }
+
+  if (flow !== "transfer") {
+    const label = { income: "Goes into reserve", expense: "Paid from reserve", contra: "Whose money (reserve)" }[flow];
+    document.getElementById("pay-from-label").textContent = label;
+    renderReserveChips(payFromChips, {
+      selected: draft.reserve,
+      onSelect: (name) => {
+        draft.reserve = name;
+        renderAmountChoices();
+      },
+      first: flow === "income" ? draft.category : GENERAL,
+      amountFor: flow === "contra" ? (r) => cellBalance(r, draft.fromAccount) : undefined,
+    });
+  }
+
+  if (flow === "transfer") {
+    availableText.textContent = `${draft.from} money in ${draft.account}: ${currency.format(draftAvailable())}`;
+  } else if (flow === "contra") {
+    availableText.textContent = `${draft.reserve} money in ${draft.fromAccount}: ${currency.format(draftAvailable())}`;
+  }
 }
 
 function startFlow(flow) {
-  if (draft.flow !== flow) {
-    draft.category = null;
-    draft.from = null;
-    draft.to = null;
-  }
+  if (draft.flow !== flow) Object.assign(draft, { category: null, from: null, to: null, fromAccount: null, toAccount: null });
   draft.flow = flow;
   draft.reserve = GENERAL;
+  draft.account = DEFAULT_ACCOUNT;
   postedMsg.hidden = true;
   goToStage(FLOWS[flow][1]);
 }
 
 function startTransferFrom(name) {
-  draft.flow = "transfer";
-  draft.from = name;
-  draft.to = null;
+  Object.assign(draft, { flow: "transfer", from: name, to: null, account: DEFAULT_ACCOUNT });
   postedMsg.hidden = true;
   goToStage("to");
+  wizard.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function startContraFrom(name) {
+  Object.assign(draft, { flow: "contra", fromAccount: name, toAccount: null, reserve: GENERAL });
+  postedMsg.hidden = true;
+  goToStage("toAccount");
   wizard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -398,7 +527,7 @@ function resetWizard() {
   amountInput.value = "";
   noteInput.value = "";
   dateInput.value = today();
-  Object.assign(draft, { flow: null, index: 0, category: null, reserve: GENERAL, from: null, to: null });
+  Object.assign(draft, EMPTY_DRAFT);
   goToStage("type", "back");
 }
 
@@ -412,11 +541,11 @@ backBtn.addEventListener("click", () => {
 });
 
 document.getElementById("chosen").addEventListener("click", () => {
-  goToStage(draft.flow === "transfer" ? "from" : "category", "back");
+  goToStage(FLOWS[draft.flow][1], "back");
 });
 
-document.getElementById("transfer-all").addEventListener("click", () => {
-  const available = reserveBalance(draft.from);
+moveAllBtn.addEventListener("click", () => {
+  const available = draftAvailable();
   amountInput.value = available > 0 ? available.toFixed(2) : "";
   amountInput.focus();
 });
@@ -427,16 +556,20 @@ amountForm.addEventListener("submit", async (event) => {
   if (!(amount > 0) || !draft.flow) return;
 
   let body;
-  if (draft.flow === "transfer") {
-    if (!draft.from || !draft.to) return;
-    const available = reserveBalance(draft.from);
-    if (amount > available && !confirm(`${draft.from} only has ${currency.format(available)}. Transfer anyway?`)) {
+  if (draft.flow === "transfer" || draft.flow === "contra") {
+    const isTransfer = draft.flow === "transfer";
+    if (isTransfer ? !draft.from || !draft.to : !draft.fromAccount || !draft.toAccount) return;
+    const available = draftAvailable();
+    const source = isTransfer ? `${draft.from} in ${draft.account}` : `${draft.reserve} in ${draft.fromAccount}`;
+    if (amount > available && !confirm(`${source} only has ${currency.format(available)}. Continue anyway?`)) {
       return;
     }
-    body = { type: "transfer", reserve: draft.from, toReserve: draft.to };
+    body = isTransfer
+      ? { type: "transfer", reserve: draft.from, toReserve: draft.to, account: draft.account }
+      : { type: "contra", reserve: draft.reserve, account: draft.fromAccount, toAccount: draft.toAccount };
   } else {
     if (!draft.category) return;
-    body = { type: draft.flow, category: draft.category, reserve: draft.reserve };
+    body = { type: draft.flow, category: draft.category, reserve: draft.reserve, account: draft.account };
   }
   Object.assign(body, { description: noteInput.value.trim(), amount, date: dateInput.value || today() });
 
@@ -448,12 +581,12 @@ amountForm.addEventListener("submit", async (event) => {
     showStatus("");
     render();
 
-    postedMsg.textContent =
-      created.type === "transfer"
-        ? `✓ Moved ${currency.format(created.amount)} to ${created.toReserve}`
-        : created.type === "income"
-        ? `✓ Added to ${reserveLabel(created.reserve)}`
-        : `✓ Paid from ${reserveLabel(created.reserve)}`;
+    postedMsg.textContent = {
+      transfer: () => `✓ Moved ${currency.format(created.amount)} to ${created.toReserve}`,
+      contra: () => `✓ Moved ${currency.format(created.amount)} from ${created.account} to ${created.toAccount}`,
+      income: () => `✓ Added to ${reserveLabel(created.reserve)} · ${created.account}`,
+      expense: () => `✓ Paid from ${reserveLabel(created.reserve)} · ${created.account}`,
+    }[created.type]();
     resetWizard();
     postedMsg.hidden = false;
     clearTimeout(postedTimer);
@@ -472,40 +605,70 @@ const editForm = document.getElementById("edit-form");
 const editTitle = document.getElementById("edit-title");
 const editEntryFields = document.getElementById("edit-entry-fields");
 const editTransferFields = document.getElementById("edit-transfer-fields");
+const editContraFields = document.getElementById("edit-contra-fields");
+const editAccountGroup = document.getElementById("edit-account-group");
 const editCategories = document.getElementById("edit-categories");
-const editPayFrom = document.getElementById("edit-pay-from");
 const editAmount = document.getElementById("edit-amount");
 const editNote = document.getElementById("edit-note");
 const editDate = document.getElementById("edit-date");
 const editSave = document.getElementById("edit-save");
 const editDelete = document.getElementById("edit-delete");
-const edit = { id: null, isTransfer: false, category: "", reserve: GENERAL, from: "", to: "" };
+// kind: "entry" (income/expense), "transfer" or "contra"
+const edit = { id: null, kind: "entry", category: "", reserve: GENERAL, from: "", to: "", account: DEFAULT_ACCOUNT, toAccount: "" };
 
 function renderEditFields() {
-  if (edit.isTransfer) {
-    renderReserveChips(
-      document.getElementById("edit-from-chips"),
-      edit.from,
-      (name) => {
-        edit.from = name;
-        if (edit.to === name) edit.to = "";
+  const skipId = edit.id;
+  const rerender = (changes) => () => {
+    Object.assign(edit, changes());
+    renderEditFields();
+  };
+
+  if (edit.kind === "contra") {
+    renderAccountChips(document.getElementById("edit-from-account-chips"), {
+      selected: edit.account,
+      skipId,
+      onSelect: (name) => {
+        edit.account = name;
+        if (edit.toAccount === name) edit.toAccount = "";
         renderEditFields();
       },
-      null,
-      null,
-      edit.id
-    );
-    renderReserveChips(
-      document.getElementById("edit-to-chips"),
-      edit.to,
-      (name) => {
-        edit.to = name;
-        renderEditFields();
-      },
-      edit.from,
-      null,
-      edit.id
-    );
+    });
+    renderAccountChips(document.getElementById("edit-to-account-chips"), {
+      selected: edit.toAccount,
+      skipId,
+      exclude: edit.account,
+      onSelect: (name) => rerender(() => ({ toAccount: name }))(),
+    });
+    renderReserveChips(document.getElementById("edit-contra-reserve-chips"), {
+      selected: edit.reserve,
+      skipId,
+      first: GENERAL,
+      amountFor: (r) => cellBalance(r, edit.account, skipId),
+      onSelect: (name) => rerender(() => ({ reserve: name }))(),
+    });
+    return;
+  }
+
+  document.getElementById("edit-account-label").textContent =
+    edit.kind === "transfer" ? "In account" : editForm.elements.type.value === "income" ? "Received in account" : "Paid from account";
+  renderAccountChips(document.getElementById("edit-account-chips"), {
+    selected: edit.account,
+    skipId,
+    onSelect: (name) => rerender(() => ({ account: name }))(),
+  });
+
+  if (edit.kind === "transfer") {
+    renderReserveChips(document.getElementById("edit-from-chips"), {
+      selected: edit.from,
+      skipId,
+      onSelect: (name) => rerender(() => ({ from: name, to: edit.to === name ? "" : edit.to }))(),
+    });
+    renderReserveChips(document.getElementById("edit-to-chips"), {
+      selected: edit.to,
+      skipId,
+      exclude: edit.from,
+      onSelect: (name) => rerender(() => ({ to: name }))(),
+    });
     return;
   }
 
@@ -530,32 +693,32 @@ function renderEditFields() {
 
   document.getElementById("edit-pay-from-label").textContent =
     type === "income" ? "Goes into reserve" : "Paid from reserve";
-  renderReserveChips(
-    document.getElementById("edit-pay-from-chips"),
-    edit.reserve,
-    (name) => {
-      edit.reserve = name;
-      renderEditFields();
-    },
-    null,
-    type === "income" ? edit.category || GENERAL : GENERAL,
-    edit.id
-  );
+  renderReserveChips(document.getElementById("edit-pay-from-chips"), {
+    selected: edit.reserve,
+    skipId,
+    first: type === "income" ? edit.category || GENERAL : GENERAL,
+    onSelect: (name) => rerender(() => ({ reserve: name }))(),
+  });
 }
 
 function openEditor(entry) {
+  const kind = entry.type === "transfer" || entry.type === "contra" ? entry.type : "entry";
   Object.assign(edit, {
     id: entry.id,
-    isTransfer: entry.type === "transfer",
+    kind,
     category: entry.category,
-    reserve: entry.type === "transfer" ? GENERAL : entry.reserve || entry.category || GENERAL,
-    from: entry.type === "transfer" ? entry.reserve : "",
-    to: entry.type === "transfer" ? entry.toReserve : "",
+    reserve: kind === "transfer" ? GENERAL : entry.reserve || entry.category || GENERAL,
+    from: kind === "transfer" ? entry.reserve : "",
+    to: kind === "transfer" ? entry.toReserve : "",
+    account: entry.account || DEFAULT_ACCOUNT,
+    toAccount: entry.toAccount || "",
   });
-  editTitle.textContent = edit.isTransfer ? "Edit Transfer" : "Edit Entry";
-  editEntryFields.hidden = edit.isTransfer;
-  editTransferFields.hidden = !edit.isTransfer;
-  if (!edit.isTransfer) editForm.elements.type.value = entry.type;
+  editTitle.textContent = { entry: "Edit Entry", transfer: "Edit Transfer", contra: "Edit Contra" }[kind];
+  editEntryFields.hidden = kind !== "entry";
+  editTransferFields.hidden = kind !== "transfer";
+  editContraFields.hidden = kind !== "contra";
+  editAccountGroup.hidden = kind === "contra";
+  if (kind === "entry") editForm.elements.type.value = entry.type;
   // Older entries without a category keep their text as the note.
   editNote.value = entry.description;
   editAmount.value = entry.amount;
@@ -593,19 +756,25 @@ editForm.addEventListener("submit", async (event) => {
   if (!(amount > 0) || edit.id === null) return;
 
   let body;
-  if (edit.isTransfer) {
+  if (edit.kind === "transfer") {
     if (!edit.from || !edit.to) {
       alert("Choose both reserves");
       return;
     }
-    body = { type: "transfer", reserve: edit.from, toReserve: edit.to };
+    body = { type: "transfer", reserve: edit.from, toReserve: edit.to, account: edit.account };
+  } else if (edit.kind === "contra") {
+    if (!edit.account || !edit.toAccount) {
+      alert("Choose both accounts");
+      return;
+    }
+    body = { type: "contra", reserve: edit.reserve, account: edit.account, toAccount: edit.toAccount };
   } else {
     if (!edit.category && !note) {
       alert("Choose a category");
       return;
     }
     const type = editForm.elements.type.value;
-    body = { type, category: edit.category, reserve: edit.reserve };
+    body = { type, category: edit.category, reserve: edit.reserve, account: edit.account };
   }
   Object.assign(body, { description: note, amount, date: editDate.value });
 
@@ -627,7 +796,8 @@ editForm.addEventListener("submit", async (event) => {
 editDelete.addEventListener("click", async () => {
   const entry = entries.find((e) => e.id === edit.id);
   if (!entry) return;
-  const name = entry.type === "transfer" ? "this transfer" : `"${entry.category || entry.description}"`;
+  const name =
+    entry.type === "transfer" ? "this transfer" : entry.type === "contra" ? "this contra entry" : `"${entry.category || entry.description}"`;
   if (!confirm(`Delete ${name}?`)) return;
 
   editDelete.disabled = true;
@@ -670,7 +840,16 @@ function renderReport() {
 
   if (report.stage === "reserve") {
     reportTitle.textContent = "Reports";
-    reportBody.append(el("p", "step-hint", "What happened to my money? Pick a reserve."));
+    const gridCard = el("button", "type-card wide grid-card");
+    gridCard.type = "button";
+    const gridIcon = el("span", "type-icon", "▦");
+    gridIcon.setAttribute("aria-hidden", "true");
+    const gridText = el("span", "type-text");
+    gridText.append(el("span", "type-name", "Reserves × Accounts"), el("span", "type-sub", "Where each reserve's money is kept"));
+    gridCard.append(gridIcon, gridText);
+    gridCard.addEventListener("click", () => showReportStage("grid"));
+    reportBody.append(gridCard);
+    reportBody.append(el("p", "step-hint report-hint", "What happened to my money? Pick a reserve."));
     const grid = el("div", "category-grid");
     for (const r of computeReserves()) {
       if (!reserveMonths(entries, r.name).length) continue;
@@ -685,6 +864,12 @@ function renderReport() {
     }
     if (!grid.children.length) reportBody.append(el("p", "empty", "Add some income to see reports."));
     else reportBody.append(grid);
+    return;
+  }
+
+  if (report.stage === "grid") {
+    reportTitle.textContent = "Reserves × Accounts";
+    renderGrid();
     return;
   }
 
@@ -800,6 +985,60 @@ function renderReport() {
   const left = el("p", "report-left");
   left.textContent = r.remaining > 0 ? `${currency.format(r.remaining)} of it is still in ${reserveLabel(r.reserve)}.` : "All of it has been used.";
   reportBody.append(left);
+}
+
+// Table of reserves (rows) x accounts (columns) with totals.
+function renderGrid() {
+  const grid = reserveAccountGrid(entries);
+  const order = computeReserves().map((r) => r.name);
+  const reserves = [...grid.reserves].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const cellText = (v) => (Math.abs(v) < 0.005 ? "–" : compactCurrency.format(v));
+  const td = (tag, text, cls = "") => el(tag, cls, text);
+
+  const wrap = el("div", "grid-wrap");
+  const table = el("table", "grid-table");
+  const head = el("tr");
+  head.append(td("th", "Reserve", "grid-corner"));
+  for (const a of grid.accounts) {
+    const th = el("th", "grid-account");
+    th.append(el("span", "grid-account-icon", accountIcon(a)), el("span", "", a));
+    head.append(th);
+  }
+  head.append(td("th", "Total", "grid-total"));
+  const thead = el("thead");
+  thead.append(head);
+
+  const tbody = el("tbody");
+  for (const r of reserves) {
+    const tr = el("tr");
+    const th = el("th", "grid-reserve");
+    th.append(el("span", "", reserveIcon(r) + " " + r));
+    tr.append(th);
+    for (const a of grid.accounts) {
+      const v = grid.cell(r, a);
+      tr.append(td("td", cellText(v), v < -0.005 ? "expense" : ""));
+    }
+    const total = grid.rowTotals[r];
+    tr.append(td("td", cellText(total), "grid-total" + (total < -0.005 ? " expense" : "")));
+    tbody.append(tr);
+  }
+
+  const foot = el("tr", "grid-foot");
+  foot.append(td("th", "Total", "grid-reserve"));
+  for (const a of grid.accounts) {
+    const v = grid.columnTotals[a];
+    foot.append(td("td", cellText(v), v < -0.005 ? "expense" : ""));
+  }
+  foot.append(td("td", cellText(grid.total), "grid-total" + (grid.total < -0.005 ? " expense" : "")));
+  const tfoot = el("tfoot");
+  tfoot.append(foot);
+
+  table.append(thead, tbody, tfoot);
+  wrap.append(table);
+  reportBody.append(
+    el("p", "step-hint", "How much of each reserve is kept in each account. Rows add up to reserve balances, columns to account balances."),
+    wrap
+  );
 }
 
 reportBack.addEventListener("click", () => showReportStage(report.stage === "view" ? "month" : "reserve"));

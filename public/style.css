@@ -11,6 +11,8 @@
   --expense-bg: #fee2e2;
   --transfer: #6d28d9;
   --transfer-bg: #ede9fe;
+  --contra: #0f766e;
+  --contra-bg: #ccfbf1;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 @media (prefers-color-scheme: dark) {
@@ -27,6 +29,8 @@
     --expense-bg: #7f1d1d;
     --transfer: #a78bfa;
     --transfer-bg: #3b2f63;
+    --contra: #2dd4bf;
+    --contra-bg: #134e4a;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 }
@@ -387,4 +391,65 @@ button.danger { background: transparent; color: var(--expense); border: 1px soli
   .report-tiles { grid-template-columns: 1fr; gap: 6px; }
   .report-tile { flex-direction: row; justify-content: space-between; align-items: baseline; padding: 8px 12px; }
   .tile-value { font-size: 1rem; }
+}
+
+/* ---------- Accounts ---------- */
+.accounts-section { margin-bottom: 16px; }
+.account-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.account-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px;
+  min-width: 0;
+  text-align: left;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  transition: transform 0.1s;
+}
+.account-card:active { transform: scale(0.97); }
+.account-icon { font-size: 1.1rem; }
+.account-name { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+.account-balance { font-size: 0.95rem; font-weight: 700; overflow-wrap: anywhere; }
+
+/* Contra */
+.type-card.contra .type-icon, .contra .type-icon { background: var(--contra-bg); color: var(--contra); }
+.type-card.contra .type-name { color: var(--contra); }
+.type-card.contra:hover, .category-card.contra:hover { border-color: var(--contra); }
+.wizard[data-type="contra"] .wizard-header h2 { color: var(--contra); }
+.wizard[data-type="contra"] .dot.active { background: var(--contra); }
+.wizard[data-type="contra"] .amount-field:focus-within { border-color: var(--contra); }
+.wizard[data-type="contra"] .post-btn { background: var(--contra); }
+.entry-card.contra { border-left-color: var(--contra); }
+.entry-amount.contra { color: var(--contra); }
+#edit-contra-fields { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------- Grid report ---------- */
+.grid-card { width: 100%; margin-bottom: 14px; }
+.grid-card .type-icon { background: var(--transfer-bg); color: var(--transfer); }
+.grid-card .type-name { color: var(--text); }
+.report-hint { margin-top: 4px; }
+.grid-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.grid-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.grid-table th, .grid-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.grid-table thead th { font-size: 0.72rem; color: var(--muted); font-weight: 600; vertical-align: bottom; }
+.grid-account { text-align: right; }
+.grid-account span { display: block; }
+.grid-account-icon { font-size: 1rem; }
+.grid-corner, .grid-reserve { text-align: left !important; font-weight: 600; }
+.grid-reserve { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.grid-total { font-weight: 700; background: var(--bg); }
+.grid-foot th, .grid-foot td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; }
+.account-balance { font-size: 0.9rem; white-space: nowrap; }
+@media (max-width: 480px) {
+  .grid-table { font-size: 0.74rem; }
+  .grid-table th, .grid-table td { padding: 7px 3px; }
+  .grid-account-icon { display: none !important; }
+  .grid-reserve { max-width: 84px; }
 }

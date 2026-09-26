@@ -22,6 +22,11 @@
         </div>
       </section>
 
+      <section class="accounts-section">
+        <h2 class="section-title">Accounts <span class="hint">Tap an account for a contra entry</span></h2>
+        <div id="accounts" class="account-grid"></div>
+      </section>
+
       <section class="reserves-section">
         <h2 class="section-title">Reserves <span class="hint">Tap a reserve to transfer</span></h2>
         <div id="reserves" class="reserve-grid"></div>
@@ -55,6 +60,13 @@
                 <span class="type-sub">Move money between reserves</span>
               </span>
             </button>
+            <button type="button" class="type-card contra wide" data-flow="contra">
+              <span class="type-icon" aria-hidden="true">🔁</span>
+              <span class="type-text">
+                <span class="type-name">Contra</span>
+                <span class="type-sub">Move money between accounts (e.g. withdraw cash)</span>
+              </span>
+            </button>
           </div>
         </div>
 
@@ -74,6 +86,11 @@
             </span>
             <span class="chosen-change">Change</span>
           </button>
+
+          <div id="account-group" class="field-group" hidden>
+            <span class="field-label" id="account-label">Account</span>
+            <div class="chips" id="account-chips" role="radiogroup" aria-label="Account"></div>
+          </div>
 
           <div id="pay-from" class="field-group" hidden>
             <span class="field-label" id="pay-from-label">Paid from reserve</span>
@@ -141,6 +158,26 @@
           <span class="field-label">To reserve</span>
           <div class="chips" id="edit-to-chips" role="radiogroup" aria-label="To reserve"></div>
         </div>
+      </div>
+
+      <div id="edit-contra-fields">
+        <div class="field-group">
+          <span class="field-label">From account</span>
+          <div class="chips" id="edit-from-account-chips" role="radiogroup" aria-label="From account"></div>
+        </div>
+        <div class="field-group">
+          <span class="field-label">To account</span>
+          <div class="chips" id="edit-to-account-chips" role="radiogroup" aria-label="To account"></div>
+        </div>
+        <div class="field-group">
+          <span class="field-label">Whose money (reserve)</span>
+          <div class="chips" id="edit-contra-reserve-chips" role="radiogroup" aria-label="Reserve"></div>
+        </div>
+      </div>
+
+      <div id="edit-account-group" class="field-group">
+        <span class="field-label" id="edit-account-label">Account</span>
+        <div class="chips" id="edit-account-chips" role="radiogroup" aria-label="Account"></div>
       </div>
 
       <label class="amount-field small">

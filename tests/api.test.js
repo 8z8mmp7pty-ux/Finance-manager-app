@@ -69,6 +69,29 @@ test("R11: transfers move money between two different reserves", { skip }, async
   assert.equal(missing.status, 400);
 });
 
+test("R17/R18: entries record an account; Super Money is the default", { skip }, async () => {
+  const a = await post({ ...base, type: "expense", category: "Health", amount: 100 });
+  assert.equal(a.data.account, "Super Money");
+  assert.equal(a.data.toAccount, "");
+  const b = await post({ ...base, type: "income", category: "Salary", account: "GPay", amount: 100 });
+  assert.equal(b.data.account, "GPay");
+  const t = await post({ ...base, type: "transfer", reserve: "Salary", toReserve: "General Reserve", account: "GPay", amount: 50 });
+  assert.equal(t.data.account, "GPay");
+});
+
+test("R19: contra entries move money between two different accounts", { skip }, async () => {
+  const ok = await post({ ...base, type: "contra", account: "Super Money", toAccount: "Cash", amount: 2000 });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.data.type, "contra");
+  assert.equal(ok.data.reserve, "General Reserve", "contra defaults to General Reserve money");
+  assert.equal(ok.data.toAccount, "Cash");
+  assert.equal(ok.data.category, "");
+  const withReserve = await post({ ...base, type: "contra", reserve: "Salary", account: "Super Money", toAccount: "GPay", amount: 10 });
+  assert.equal(withReserve.data.reserve, "Salary");
+  assert.equal((await post({ ...base, type: "contra", account: "Cash", toAccount: "Cash", amount: 1 })).status, 400);
+  assert.equal((await post({ ...base, type: "contra", account: "Cash", amount: 1 })).status, 400);
+});
+
 test("R1: invalid entries are rejected", { skip }, async () => {
   for (const body of [
     { ...base, type: "loan", category: "Salary", amount: 1 },

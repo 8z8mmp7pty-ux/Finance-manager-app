@@ -34,9 +34,16 @@ test("R3: old data survives the upgrade and old entries land in General Reserve"
   const res = await call(handler, "GET");
   assert.equal(res.status, 200);
   assert.equal(res.data.length, 2);
-  for (const e of res.data) assert.equal(e.reserve, "General Reserve");
+  for (const e of res.data) {
+    assert.equal(e.reserve, "General Reserve");
+    assert.equal(e.account, "Super Money", "R18: existing entries are in Super Money");
+  }
   const transfer = await call(handler, "POST", "/api/entries", {
     type: "transfer", reserve: "General Reserve", toReserve: "Salary", amount: 10, description: "", date: "2026-07-03",
   });
   assert.equal(transfer.status, 201, "transfer type allowed after upgrade");
+  const contra = await call(handler, "POST", "/api/entries", {
+    type: "contra", account: "Super Money", toAccount: "Cash", amount: 10, description: "", date: "2026-07-04",
+  });
+  assert.equal(contra.status, 201, "contra type allowed after upgrade");
 });

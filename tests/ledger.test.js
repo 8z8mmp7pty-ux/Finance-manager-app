@@ -1,7 +1,7 @@
 // Tests for the FIFO reserve logic. Requirement IDs refer to REQUIREMENTS.md.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport } from "../public/ledger.js";
+import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -128,4 +128,59 @@ test("allocation handles paise without rounding drift", () => {
   const r = reserveReport(entries, "Salary", "2026-08");
   assert.equal(r.remaining, 0);
   assert.equal(r.used, 100.1);
+});
+
+// ---------- Accounts (R17–R20) ----------
+
+const withAccount = (entry, account) => ({ ...entry, account });
+const contra = (date, from, to, amount, reserve = GENERAL) => ({ id: nextId++, type: "contra", category: "", description: "", reserve, toReserve: "", account: from, toAccount: to, amount, date });
+
+test("R18: entries without an account count as Super Money", () => {
+  const balances = accountBalances([income("2026-08-01", "Salary", 1000)]);
+  assert.deepEqual(balances, [
+    { name: "Super Money", balance: 1000 },
+    { name: "GPay", balance: 0 },
+    { name: "Cash", balance: 0 },
+  ]);
+});
+
+test("R19: contra moves a reserve's money between accounts without changing any reserve or the balance", () => {
+  const entries = [
+    income("2026-08-01", "Salary", 60000),
+    contra("2026-08-02", "Super Money", "Cash", 5000, "Salary"),
+    withAccount(expense("2026-08-03", "Groceries", 1200, "Salary"), "Cash"),
+  ];
+  const grid = reserveAccountGrid(entries);
+  assert.equal(grid.cell("Salary", "Super Money"), 55000);
+  assert.equal(grid.cell("Salary", "Cash"), 3800);
+  assert.equal(grid.rowTotals.Salary, 58800);
+  assert.equal(grid.columnTotals.Cash, 3800);
+  assert.equal(grid.total, 58800);
+  const reserves = Object.fromEntries(reserveBalances(entries, "2026-08-15").map((r) => [r.name, r.balance]));
+  assert.equal(reserves.Salary, 58800, "contra does not change the reserve");
+  // FIFO report is about reserves, so the contra is not an expense of August salary.
+  const r = reserveReport(entries, "Salary", "2026-08");
+  assert.deepEqual(r.items.map((i) => i.entry.category), ["Groceries"]);
+});
+
+test("R20: grid rows add up to reserve balances, columns to account balances, total to the balance", () => {
+  const entries = [
+    income("2026-08-01", "Salary", 60000),
+    withAccount(income("2026-08-02", "Freelance", 8000), "GPay"),
+    withAccount(expense("2026-08-03", "Rent", 15000), "Super Money"),
+    transfer("2026-08-04", "Salary", GENERAL, 20000),
+    contra("2026-08-05", "Super Money", "Cash", 2000),
+    withAccount(expense("2026-08-06", "Food & Dining", 500), "Cash"),
+  ];
+  const grid = reserveAccountGrid(entries);
+  const reserves = Object.fromEntries(reserveBalances(entries, "2026-08-15").map((r) => [r.name, r.balance]));
+  for (const r of grid.reserves) assert.equal(grid.rowTotals[r], reserves[r], r);
+  assert.deepEqual(accountBalances(entries), [
+    { name: "Super Money", balance: 60000 - 15000 - 2000 },
+    { name: "GPay", balance: 8000 },
+    { name: "Cash", balance: 1500 },
+  ]);
+  assert.equal(grid.total, 60000 + 8000 - 15000 - 500);
+  assert.equal(grid.cell(GENERAL, "Super Money"), -15000 + 20000 - 2000);
+  assert.equal(grid.cell(GENERAL, "Cash"), 1500);
 });
