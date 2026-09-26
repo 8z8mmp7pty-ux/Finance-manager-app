@@ -49,6 +49,7 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 | R32 | Automatic **Transport** line: average per week over the last 3 months, applied to the next 3 weeks. Automatic **Bills & Utilities** line: average per month over the last 3 months, applied to the next 1 month. Same behaviour as R28/R31 (update by themselves, not recorded, counted day by day in the forecast). | `tests/ledger.test.js` (R32, R28/R31/R32), `tests/e2e/app.test.js` (R32/R33) |
 | R33 | The **Shopping** expense card is renamed **Dress** 👗 (old Shopping entries keep their name and 🛍️ icon, like other replaced categories). | `tests/e2e/app.test.js` (R6/R7, R32/R33) |
 | R34 | The **Travel** expense card is removed. Automatic **Education** and **Entertainment** lines: average per month over the last 3 months, applied to the next 1 month (same behaviour as R32). | `tests/ledger.test.js` (R34), `tests/e2e/app.test.js` (R6/R7, R32/R33) |
+| R35 | Every automatic average **includes today** in the past period (e.g. last 30 days = today and the 29 days before; last 3 months = the day after the same date 3 months ago through today). Future-dated entries are not counted. The period planned ahead starts tomorrow, so today is never counted twice. | `tests/ledger.test.js` (R28, R31, R32, R35) |
 | R16 | A **requirements guardian** keeps every requirement in this file working as new requests are made (see `CLAUDE.md` and `.claude/agents/requirements-guardian.md`; CI runs all tests on every push). | `.github/workflows/test.yml` |
 
 ## History
@@ -68,3 +69,4 @@ TEST_DATABASE_URL=postgres://... npm run test:e2e    # browser tests on a phone-
 - R31: automatic Ntorq plans (petrol: last 4 weeks → next 4 weeks; repair / accessory: last 3 months → next month). The owner did not specify the petrol look-back; 4 weeks was chosen to match the 4 weeks ahead.
 - R32–R33: automatic Transport (3 months → next 3 weeks, per week) and Bills & Utilities (3 months → next month, per month) lines; Shopping card renamed Dress. Automatic lines are now defined as rules (AUTO_RULES in public/ledger.js) and spread over their days in whole paise.
 - R34: Travel card removed (old Travel entries keep their name and ✈️ icon); automatic Education and Entertainment lines (3 months → next month).
+- R35: the owner asked that averages use today's date as part of the past period; this was already the behaviour and is now a requirement with its own test.

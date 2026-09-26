@@ -516,3 +516,39 @@ test("R31: look-back windows at month ends, future entries ignored, auto lines +
   const b = cashflowForecast(entries, [{ category: "Ntorq", amount: 5000 }], plans, "2026-09-26", 2, lines);
   assert.equal(b.rows[1].expense, 5000);
 });
+
+test("R35: every automatic average includes today in the past period; the plan ahead starts tomorrow", () => {
+  const today = "2026-09-26";
+  const entries = [
+    expense(today, "Mandatory Food", 300),
+    expense(today, "Optional Food", 150),
+    { ...expense(today, "Ntorq", 400), subcategory: "Petrol" },
+    { ...expense(today, "Ntorq", 900), subcategory: "Repair / Accessory" },
+    expense(today, "Transport", 92 * 10),
+    expense(today, "Bills & Utilities", 3000),
+    expense(today, "Education", 3000),
+    expense(today, "Entertainment", 3000),
+    expense("2026-09-27", "Education", 99999), // tomorrow: not counted
+  ];
+  for (const line of autoPlans(entries, today)) {
+    assert.ok(line.since <= today, line.category);
+    assert.ok(line.spent > 0, `${line.subcategory || line.category} counts today's entry`);
+    assert.equal(line.from, "2026-09-27", "the plan ahead starts tomorrow");
+  }
+  assert.equal(autoPlans(entries, today).find((l) => l.category === "Education").spent, 3000);
+});
+
+test("R32: Transport over a 90-day 3-month window (31 Mar looks back to 1 Jan)", () => {
+  const [t] = autoPlans([expense("2026-01-01", "Transport", 1000)], "2026-03-31").filter((l) => l.category === "Transport");
+  assert.deepEqual([t.since, t.rate, t.amount], ["2026-01-01", 77.78, 233.33]);
+});
+
+test("R34: Education and Entertainment auto amounts land in the forecast month by month", () => {
+  const entries = [expense("2026-09-01", "Education", 3100), expense("2026-09-02", "Entertainment", 3100)];
+  const lines = autoPlans(entries, "2026-09-26").filter((l) => ["Education", "Entertainment"].includes(l.category));
+  // Each is ~₹1,033.33 over 27 Sep – 26 Oct (30 days): 4 days in September, 26 in October.
+  const f = cashflowForecast(entries, [], [], "2026-09-26", 2, lines);
+  const total = lines.reduce((s, l) => s + l.amount, 0);
+  assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, Math.round(total * 100) / 100);
+  assert.ok(f.rows[1].expense > f.rows[0].expense * 5);
+});

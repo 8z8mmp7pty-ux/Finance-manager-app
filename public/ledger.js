@@ -1,4 +1,5 @@
-// Pure bookkeeping logic shared by the browser app and the tests (no DOM access here).
+// Pure bookkeeping logic shared by the browser app, the API (api/entries.js imports it) and the
+// tests. Keep it free of DOM, browser-only globals and imports, or the serverless API breaks.
 //
 // Every inflow into a reserve (an income, or a transfer in) is a "lot". Outflows from a
 // reserve (expenses, transfers out) use up lots first-in, first-out: August salary is only

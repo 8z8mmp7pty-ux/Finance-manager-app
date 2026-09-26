@@ -553,3 +553,5 @@ li:last-child > button.report-row { border-bottom: none; }
 .auto-badge { flex-shrink: 0; padding: 4px 10px; border-radius: 999px; background: var(--transfer-bg); color: var(--transfer); font-size: 0.75rem; font-weight: 700; }
 .split-switch { align-items: center; }
 .switch-label { flex-shrink: 0; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+/* Names in the Planned list wrap at word boundaries (not "Entertainmen / t"). */
+.plan-item .entry-desc { overflow-wrap: break-word; }

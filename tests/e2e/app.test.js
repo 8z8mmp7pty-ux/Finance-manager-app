@@ -771,3 +771,22 @@ test("R32/R33: Dress replaces Shopping; automatic Transport (3 weeks) and Bills 
   }
   await screen("");
 });
+
+test("R33/R34: old Shopping and Travel entries keep their name and icon and open in the editor", { skip }, async () => {
+  for (const [category, icon] of [["Shopping", "🛍️"], ["Travel", "✈️"]]) {
+    const res = await page.request.post(URL_ + "api/entries", {
+      data: { type: "expense", category, description: "old " + category, amount: 111, date: localToday() },
+    });
+    assert.equal(res.status(), 201);
+    await page.reload();
+    await page.waitForSelector("#app:not([hidden])");
+    await screen("entries");
+    const card = page.locator(`.entry-card:has-text("old ${category}")`);
+    assert.match(await card.innerText(), new RegExp(icon));
+    await card.tap();
+    await page.waitForSelector("dialog[open]");
+    assert.equal(await page.$eval('#edit-categories .category-card[aria-checked="true"] .category-name', (e) => e.textContent), category);
+    await page.tap("#edit-close");
+  }
+  await screen("");
+});
