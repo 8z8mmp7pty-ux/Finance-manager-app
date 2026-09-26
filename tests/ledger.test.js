@@ -55,6 +55,19 @@ test("R13: an expense made before the salary arrives is covered by that salary",
   assert.equal(r.remaining, 50000);
 });
 
+test("R14: money is never reported as used before it arrived", () => {
+  const entries = [
+    income("2026-07-01", "Salary", 50000),
+    expense("2026-07-20", "Rent", 65000, "Salary"), // 50,000 from July, 15,000 covered by August
+    income("2026-08-01", "Salary", 60000),
+  ];
+  const aug = reserveReport(entries, "Salary", "2026-08");
+  assert.equal(aug.firstUsedOn, "2026-08-01");
+  assert.equal(aug.items[0].amount, 15000);
+  assert.equal(aug.items[0].before, true);
+  assert.deepEqual(aug.items[0].otherSources, [{ reserve: "Salary", month: "2026-07", amount: 50000 }]);
+});
+
 test("R13: shortfall not yet covered is reported", () => {
   const entries = [income("2026-08-01", "Salary", 1000), expense("2026-08-02", "Rent", 3000, "Salary")];
   const r = reserveReport(entries, "Salary", "2026-08");

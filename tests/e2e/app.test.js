@@ -134,3 +134,25 @@ test("R5: tapping an entry card opens the editor; changes are saved to the datab
   await page.waitForSelector(".entry-card");
   assert.equal(await page.textContent("#balance"), "₹45,300.00");
 });
+
+test("R9: an income's reserve can be changed in the editor", { skip }, async () => {
+  await addEntry("income", "Gift", 1000, { date: "2026-08-10" });
+  await cards(8);
+  assert.equal(await reserve("Gift"), "₹1,000.00");
+  await page.tap('.entry-card:has-text("Gift")');
+  await page.waitForSelector("dialog[open]");
+  assert.equal(await page.textContent("#edit-pay-from-label"), "Goes into reserve");
+  // Balances in the editor leave out the entry being edited.
+  assert.equal(
+    await page.$eval('#edit-pay-from-chips .chip[aria-checked="true"]', (e) => e.innerText.replace(/\s+/g, " ")),
+    "🎁 Gift ₹0.00"
+  );
+  await page.tap('#edit-pay-from-chips .chip:has-text("General Reserve")');
+  await page.tap("#edit-save");
+  await page.waitForFunction(() => !document.querySelector("dialog").open);
+  await page.reload();
+  await page.waitForSelector(".entry-card");
+  assert.equal(await page.locator('.reserve-card[aria-label^="Gift"]').count(), 0);
+  assert.equal(await reserve("General Reserve"), "₹46,300.00");
+  assert.equal(await page.textContent("#balance"), "₹46,300.00");
+});

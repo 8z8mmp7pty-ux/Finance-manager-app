@@ -40,6 +40,17 @@ test("R9: income can be allotted to another reserve", { skip }, async () => {
   assert.equal(res.data.reserve, "General Reserve");
 });
 
+test("R9: editing an income can move it to another reserve", { skip }, async () => {
+  const created = await post({ ...base, type: "income", category: "Refund", amount: 250 });
+  assert.equal(created.data.reserve, "Refund");
+  const moved = await call(handler, "PUT", `/api/entries?id=${created.data.id}`, {
+    ...base, type: "income", category: "Refund", reserve: "Salary", amount: 250,
+  });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.data.reserve, "Salary");
+  await call(handler, "DELETE", `/api/entries?id=${created.data.id}`);
+});
+
 test("R10: expenses are paid from General Reserve by default, or a chosen reserve", { skip }, async () => {
   const a = await post({ ...base, type: "expense", category: "Rent", amount: 15000 });
   assert.equal(a.data.reserve, "General Reserve");

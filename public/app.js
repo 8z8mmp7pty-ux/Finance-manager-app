@@ -101,10 +101,12 @@ function el(tag, className, textContent) {
 // ---------- Reserves ----------
 
 // Balance of every reserve (General Reserve first, then income types), plus this month's inflow.
-function computeReserves() {
+// `skipId` leaves one entry out, so the editor shows balances without the entry being edited.
+function computeReserves(skipId = null) {
   const order = [GENERAL, ...CATEGORIES.income.map((c) => c.name)];
   const rank = (name) => (order.includes(name) ? order.indexOf(name) : order.length);
-  return reserveBalances(entries, today()).sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+  const counted = skipId === null ? entries : entries.filter((e) => e.id !== skipId);
+  return reserveBalances(counted, today()).sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
 }
 
 function reserveBalance(name) {
@@ -130,9 +132,9 @@ function renderReserves() {
 
 // Reserve chips: a row of tappable reserve buttons, one selected.
 // `first` puts that reserve first, adding it if it has no money yet (e.g. a new income type).
-function renderReserveChips(container, selected, onSelect, exclude, first) {
+function renderReserveChips(container, selected, onSelect, exclude, first, skipId = null) {
   container.innerHTML = "";
-  let options = computeReserves();
+  let options = computeReserves(skipId);
   if (first) {
     const existing = options.find((r) => r.name === first) || { name: first, balance: 0 };
     options = [existing, ...options.filter((r) => r.name !== first)];
@@ -481,11 +483,18 @@ const edit = { id: null, isTransfer: false, category: "", reserve: GENERAL, from
 
 function renderEditFields() {
   if (edit.isTransfer) {
-    renderReserveChips(document.getElementById("edit-from-chips"), edit.from, (name) => {
-      edit.from = name;
-      if (edit.to === name) edit.to = "";
-      renderEditFields();
-    });
+    renderReserveChips(
+      document.getElementById("edit-from-chips"),
+      edit.from,
+      (name) => {
+        edit.from = name;
+        if (edit.to === name) edit.to = "";
+        renderEditFields();
+      },
+      null,
+      null,
+      edit.id
+    );
     renderReserveChips(
       document.getElementById("edit-to-chips"),
       edit.to,
@@ -493,7 +502,9 @@ function renderEditFields() {
         edit.to = name;
         renderEditFields();
       },
-      edit.from
+      edit.from,
+      null,
+      edit.id
     );
     return;
   }
@@ -527,7 +538,8 @@ function renderEditFields() {
       renderEditFields();
     },
     null,
-    type === "income" ? edit.category || GENERAL : GENERAL
+    type === "income" ? edit.category || GENERAL : GENERAL,
+    edit.id
   );
 }
 

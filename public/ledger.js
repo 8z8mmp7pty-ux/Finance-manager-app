@@ -144,11 +144,14 @@ export function reserveReport(entries, reserve, month) {
   for (const a of allocations) {
     if (!inMonth.has(a.lot)) continue;
     if (!rows.has(a.entry.id)) {
-      rows.set(a.entry.id, { entry: a.entry, amount: 0, before: false, otherSources: [], uncovered: 0 });
+      rows.set(a.entry.id, { entry: a.entry, amount: 0, before: false, otherSources: [], uncovered: 0, usedOn: null });
     }
     const row = rows.get(a.entry.id);
     row.amount = round(row.amount + a.amount);
     row.before = row.before || a.before;
+    // Money can't be used before it arrives: an earlier expense is covered on the arrival date.
+    const usedOn = a.before ? a.lot.date : a.entry.date;
+    if (!row.usedOn || usedOn < row.usedOn) row.usedOn = usedOn;
   }
 
   // Where the rest of a split expense came from.
@@ -181,7 +184,7 @@ export function reserveReport(entries, reserve, month) {
     used: round(received - remaining),
     remaining,
     items,
-    firstUsedOn: items.length ? items[0].date : null,
+    firstUsedOn: items.length ? items.map((i) => i.usedOn).sort()[0] : null,
     exhaustedOn: exhausted ? monthLots.map((l) => l.exhaustedOn).sort().pop() : null,
     hadEarlierMoney: earlierLots.length > 0,
     earlierMoneyLeft: round(earlierLots.reduce((s, l) => s + l.remaining, 0)),
