@@ -317,3 +317,27 @@ test("R11: if Transfer all fails halfway, the rest can be moved and nothing is l
   assert.equal(await reserve("Freelance"), "₹0.00");
   assert.equal(await page.textContent("#balance"), "₹52,250.00");
 });
+
+test("R11: 'nothing to move' is shown, then cleared when leaving; new flows start with no amount", { skip }, async () => {
+  await startTransferAll("Business", "General Reserve");
+  assert.equal(await page.textContent("#status"), "Business has nothing to move.");
+  await page.tap("#wizard-back");
+  await settle();
+  assert.ok(await page.isHidden("#status"), "message cleared after leaving the step");
+
+  await startTransferAll("General Reserve", "Salary");
+  assert.notEqual(await page.inputValue("#amount"), "");
+  for (let i = 0; i < 3; i++) {
+    await page.tap("#wizard-back"); // amount → to → from → type
+    await settle();
+  }
+  await page.tap(".type-card[data-flow=income]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Salary")');
+  await settle();
+  assert.equal(await page.inputValue("#amount"), "", "no Transfer all amount in a new income");
+  await page.tap("#wizard-back");
+  await settle();
+  await page.tap("#wizard-back");
+  await settle();
+});

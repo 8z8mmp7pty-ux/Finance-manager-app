@@ -283,6 +283,16 @@ function render() {
   renderAccounts();
   renderReserves();
   renderReport();
+  refreshTransferAll();
+}
+
+// Keep a "Transfer all" amount in step with the data (e.g. after an entry is edited).
+function refreshTransferAll() {
+  if (!draft.transferAll || draft.flow !== "transfer") return;
+  const total = planTotal(reserveSplit(draft.from));
+  draft.transferAll = total > 0;
+  amountInput.value = total > 0 ? total.toFixed(2) : "";
+  renderAmountChoices();
 }
 
 function sortEntries() {
@@ -344,6 +354,7 @@ function goToStage(stage, direction = "forward") {
   const stages = draft.flow ? FLOWS[draft.flow] : ["type", "category", "amount"];
   draft.index = stages.indexOf(stage);
   const panel = stage === "type" ? "type" : stage === "amount" ? "amount" : "pick";
+  showStatus(""); // messages belong to the step they were shown on
   if (stage !== "amount" && draft.transferAll) {
     // Leaving the amount step cancels "Transfer all" (the reserves may change).
     draft.transferAll = false;
