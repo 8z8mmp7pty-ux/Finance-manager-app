@@ -1047,6 +1047,68 @@ test("R41: Add Entry is a popup from the + button; a tap outside closes it, or p
   await page.evaluate(() => (window.confirm = window.realConfirm));
   await closeAdd();
 
+  // The page's own message stays when the popup shows one, and after a successful post.
+  await page.evaluate(() => {
+    const st = document.getElementById("status");
+    st.textContent = "Recorded Salary";
+    st.hidden = false;
+  });
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "9");
+  await page.route("**/api/entries", (route) =>
+    route.request().method() === "POST" ? route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' }) : route.continue()
+  );
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => document.getElementById("add-status").textContent.includes("boom"));
+  assert.equal(await page.textContent("#status"), "Recorded Salary", "a popup message leaves the page's");
+  await page.unroute("**/api/entries");
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  assert.equal(await page.textContent("#status"), "Recorded Salary", "a post leaves the page's message");
+  await page.evaluate(() => (document.getElementById("status").hidden = true));
+
+  // A popup left open overnight moves to the new day when the owner comes back (the amount stays).
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "11");
+  const opened = await page.inputValue("#date");
+  const next = await page.evaluate(() => {
+    const RealDate = Date;
+    window.RealDate = RealDate;
+    window.Date = class extends RealDate {
+      constructor(...args) {
+        super(...(args.length ? args : [RealDate.now() + 86400000])); // tomorrow
+      }
+    };
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
+  });
+  assert.notEqual(next, opened);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  assert.equal(await page.inputValue("#date"), next, "the date follows the new day");
+  assert.equal(await page.inputValue("#amount"), "11", "the typed entry is kept");
+  await page.evaluate(() => (window.Date = window.RealDate));
+  await page.tap("#add-close");
+
+  // Coming back while typing in a field on the page does not cover it.
+  await screen("entries");
+  await page.evaluate(() => (document.getElementById("more-filters").open = true));
+  await page.focus("#f-search");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  assert.equal(await addOpen(), false, "no popup over a field being typed in");
+  await page.evaluate(() => document.activeElement.blur());
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  assert.ok(await addOpen());
+  await screen("");
+
   // Coming back to the app opens it again.
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   assert.ok(await addOpen(), "opens when the app is opened again");

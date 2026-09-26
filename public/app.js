@@ -930,8 +930,8 @@ async function postDraft() {
 
 // After a post: the popup closes and a short confirmation shows over the page.
 function showPosted(message) {
+  resetWizard(); // while the popup is still open, so the page's own message stays
   closeAdd();
-  resetWizard();
   postedMsg.textContent = message;
   postedMsg.hidden = false;
   clearTimeout(postedTimer);
