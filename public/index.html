@@ -22,41 +22,51 @@
         </div>
       </section>
 
+      <section class="reserves-section">
+        <h2 class="section-title">Reserves <span class="hint">Tap a reserve to transfer</span></h2>
+        <div id="reserves" class="reserve-grid"></div>
+      </section>
+
       <section class="card wizard" id="wizard">
         <div class="wizard-header">
           <button type="button" id="wizard-back" class="back-btn" aria-label="Back" hidden>←</button>
           <h2 id="wizard-title">Add Entry</h2>
-          <div class="steps" aria-hidden="true">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          </div>
+          <div class="steps" id="steps" aria-hidden="true"></div>
         </div>
 
-        <!-- Step 1: income or expense -->
-        <div class="step" data-step="1">
+        <!-- Step: income, expense or transfer -->
+        <div class="step" data-step="type">
           <p class="step-hint">What would you like to add?</p>
           <div class="type-cards">
-            <button type="button" class="type-card income" data-type="income">
+            <button type="button" class="type-card income" data-flow="income">
               <span class="type-icon" aria-hidden="true">↓</span>
               <span class="type-name">Income</span>
               <span class="type-sub">Money in</span>
             </button>
-            <button type="button" class="type-card expense" data-type="expense">
+            <button type="button" class="type-card expense" data-flow="expense">
               <span class="type-icon" aria-hidden="true">↑</span>
               <span class="type-name">Expense</span>
               <span class="type-sub">Money out</span>
             </button>
+            <button type="button" class="type-card transfer wide" data-flow="transfer">
+              <span class="type-icon" aria-hidden="true">⇄</span>
+              <span class="type-text">
+                <span class="type-name">Transfer</span>
+                <span class="type-sub">Move money between reserves</span>
+              </span>
+            </button>
           </div>
         </div>
 
-        <!-- Step 2: category -->
-        <div class="step" data-step="2" hidden>
-          <p class="step-hint" id="category-hint">Choose a type</p>
-          <div class="category-grid" id="category-grid"></div>
+        <!-- Step: pick a card (category, or reserve for transfers) -->
+        <div class="step" data-step="pick" hidden>
+          <p class="step-hint" id="pick-hint"></p>
+          <div class="category-grid" id="pick-grid"></div>
         </div>
 
-        <!-- Step 3: amount -->
-        <form class="step" data-step="3" id="amount-form" hidden>
-          <button type="button" class="chosen" id="chosen" aria-label="Change category">
+        <!-- Step: amount -->
+        <form class="step" data-step="amount" id="amount-form" hidden>
+          <button type="button" class="chosen" id="chosen" aria-label="Change selection">
             <span class="chosen-icon" id="chosen-icon" aria-hidden="true"></span>
             <span class="chosen-text">
               <span class="chosen-type" id="chosen-type"></span>
@@ -64,16 +74,27 @@
             </span>
             <span class="chosen-change">Change</span>
           </button>
+
+          <div id="pay-from" class="field-group" hidden>
+            <span class="field-label">Paid from reserve</span>
+            <div class="chips" id="pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
+          </div>
+
+          <div id="transfer-available" class="available" hidden>
+            <span id="available-text"></span>
+            <button type="button" id="transfer-all" class="chip-btn">Transfer all</button>
+          </div>
+
           <label class="amount-field">
             <span class="currency" aria-hidden="true">₹</span>
             <input id="amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">
           </label>
           <input id="note" type="text" placeholder="Note (optional)" maxlength="100">
           <input id="date" type="date" required aria-label="Date">
-          <button type="submit" id="post-btn" class="post-btn">Post Entry</button>
+          <button type="submit" id="post-btn" class="post-btn">Post</button>
         </form>
 
-        <p id="posted" class="posted" hidden>✓ Entry posted</p>
+        <p id="posted" class="posted" hidden></p>
       </section>
 
       <section>
@@ -90,11 +111,30 @@
         <h2 id="edit-title">Edit Entry</h2>
         <button type="button" id="edit-close" class="icon-btn" aria-label="Close">✕</button>
       </div>
-      <div class="type-toggle" role="radiogroup" aria-label="Entry type">
-        <label class="toggle income"><input type="radio" name="type" value="income"> Income</label>
-        <label class="toggle expense"><input type="radio" name="type" value="expense"> Expense</label>
+
+      <div id="edit-entry-fields">
+        <div class="type-toggle" role="radiogroup" aria-label="Entry type">
+          <label class="toggle income"><input type="radio" name="type" value="income"> Income</label>
+          <label class="toggle expense"><input type="radio" name="type" value="expense"> Expense</label>
+        </div>
+        <div class="category-grid compact" id="edit-categories" role="radiogroup" aria-label="Category"></div>
+        <div id="edit-pay-from" class="field-group">
+          <span class="field-label">Paid from reserve</span>
+          <div class="chips" id="edit-pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
+        </div>
       </div>
-      <div class="category-grid compact" id="edit-categories" role="radiogroup" aria-label="Category"></div>
+
+      <div id="edit-transfer-fields">
+        <div class="field-group">
+          <span class="field-label">From reserve</span>
+          <div class="chips" id="edit-from-chips" role="radiogroup" aria-label="From reserve"></div>
+        </div>
+        <div class="field-group">
+          <span class="field-label">To reserve</span>
+          <div class="chips" id="edit-to-chips" role="radiogroup" aria-label="To reserve"></div>
+        </div>
+      </div>
+
       <label class="amount-field small">
         <span class="currency" aria-hidden="true">₹</span>
         <input id="edit-amount" type="number" inputmode="decimal" placeholder="0" min="0.01" step="0.01" required aria-label="Amount">

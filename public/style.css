@@ -9,6 +9,8 @@
   --accent: #2563eb;
   --income-bg: #dcfce7;
   --expense-bg: #fee2e2;
+  --transfer: #6d28d9;
+  --transfer-bg: #ede9fe;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 @media (prefers-color-scheme: dark) {
@@ -23,6 +25,8 @@
     --accent: #60a5fa;
     --income-bg: #14532d;
     --expense-bg: #7f1d1d;
+    --transfer: #a78bfa;
+    --transfer-bg: #3b2f63;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 }
@@ -110,6 +114,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 .income .type-icon { background: var(--income-bg); color: var(--income); }
 .expense .type-icon { background: var(--expense-bg); color: var(--expense); }
+.transfer .type-icon { background: var(--transfer-bg); color: var(--transfer); }
+.entry-amount.transfer { color: var(--transfer); }
 
 /* ---------- Add entry wizard ---------- */
 .wizard { overflow: hidden; }
@@ -117,6 +123,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .wizard-header h2 { margin: 0; flex: 1; }
 .wizard[data-type="income"] .wizard-header h2 { color: var(--income); }
 .wizard[data-type="expense"] .wizard-header h2 { color: var(--expense); }
+.wizard[data-type="transfer"] .wizard-header h2 { color: var(--transfer); }
 .back-btn {
   width: 36px;
   height: 36px;
@@ -131,6 +138,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .dot.active { background: var(--accent); }
 .wizard[data-type="income"] .dot.active { background: var(--income); }
 .wizard[data-type="expense"] .dot.active { background: var(--expense); }
+.wizard[data-type="transfer"] .dot.active { background: var(--transfer); }
 .step-hint { color: var(--muted); margin: 0 0 12px; font-size: 0.9rem; }
 
 .slide-forward { animation: slide-in-right 0.22s ease-out; }
@@ -158,6 +166,11 @@ button:disabled { opacity: 0.6; cursor: default; }
 .type-sub { color: var(--muted); font-size: 0.8rem; }
 .type-card.income:hover { border-color: var(--income); }
 .type-card.expense:hover { border-color: var(--expense); }
+.type-card.wide { grid-column: 1 / -1; flex-direction: row; justify-content: center; gap: 14px; padding: 14px; }
+.type-card.wide .type-icon { width: 40px; height: 40px; font-size: 1.2rem; }
+.type-text { display: flex; flex-direction: column; align-items: flex-start; }
+.type-card.transfer .type-name { color: var(--transfer); }
+.type-card.transfer:hover { border-color: var(--transfer); }
 
 /* Step 2: categories */
 .category-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -175,6 +188,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .category-name { font-size: 0.85rem; text-align: center; line-height: 1.2; }
 .category-card.income:hover { border-color: var(--income); }
 .category-card.expense:hover { border-color: var(--expense); }
+.category-card.transfer:hover { border-color: var(--transfer); }
+.category-sub { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
 .category-card[aria-checked="true"].income { border: 2px solid var(--income); background: var(--income-bg); }
 .category-card[aria-checked="true"].expense { border: 2px solid var(--expense); background: var(--expense-bg); }
 .category-grid.compact { grid-template-columns: repeat(4, 1fr); gap: 6px; }
@@ -209,6 +224,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .amount-field:focus-within { border-color: var(--accent); }
 .wizard[data-type="income"] .amount-field:focus-within { border-color: var(--income); }
 .wizard[data-type="expense"] .amount-field:focus-within { border-color: var(--expense); }
+.wizard[data-type="transfer"] .amount-field:focus-within { border-color: var(--transfer); }
 .currency { font-size: 2rem; font-weight: 700; color: var(--muted); }
 .amount-field input[type="number"] {
   border: none;
@@ -222,6 +238,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .post-btn { padding: 14px; font-size: 1.05rem; }
 .wizard[data-type="income"] .post-btn { background: var(--income); }
 .wizard[data-type="expense"] .post-btn { background: var(--expense); }
+.wizard[data-type="transfer"] .post-btn { background: var(--transfer); }
 @media (prefers-color-scheme: dark) {
   .wizard[data-type] .post-btn { color: #111827; }
 }
@@ -243,6 +260,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 .entry-card.income { border-left-color: var(--income); }
 .entry-card.expense { border-left-color: var(--expense); }
+.entry-card.transfer { border-left-color: var(--transfer); }
 .entry-info { flex: 1; min-width: 0; }
 .entry-desc { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .entry-date { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
@@ -285,3 +303,56 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .toggle.expense:has(input:checked) { border-color: var(--expense); background: var(--expense-bg); }
 .toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.danger { background: transparent; color: var(--expense); border: 1px solid var(--expense); }
+
+/* ---------- Reserves ---------- */
+.reserves-section { margin-bottom: 16px; }
+.reserve-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.reserve-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  transition: transform 0.1s, box-shadow 0.15s;
+  min-width: 0;
+}
+.reserve-card:active { transform: scale(0.97); }
+.reserve-card.general { border-color: var(--transfer); background: var(--transfer-bg); }
+.reserve-top { display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; }
+.reserve-icon { font-size: 1.1rem; }
+.reserve-name { font-size: 0.8rem; color: var(--muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reserve-card.general .reserve-name { color: var(--transfer); }
+.reserve-balance { font-size: 1.15rem; font-weight: 700; }
+.reserve-month { font-size: 0.72rem; color: var(--income); }
+
+/* Reserve chips */
+.field-group { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.chip-amount { color: var(--muted); font-size: 0.75rem; }
+.chip[aria-checked="true"] { border-color: var(--transfer); background: var(--transfer-bg); }
+.chip[aria-checked="true"] .chip-amount { color: var(--text); }
+.available { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.9rem; color: var(--muted); }
+.chip-btn { padding: 6px 12px; border-radius: 999px; background: var(--transfer-bg); color: var(--transfer); font-size: 0.85rem; }
+
+#edit-entry-fields, #edit-transfer-fields { display: flex; flex-direction: column; gap: 10px; }

@@ -5,6 +5,9 @@ Entries are stored in a **PostgreSQL** database (open source), so they are avail
 
 - Add entries step by step with tap cards: Income or Expense → category (Salary, Rent, Groceries…) → amount → Post
 - See total income, total expenses and current balance
+- Reserves (buckets): every income type pours into its own reserve (e.g. Salary Reserve),
+  plus a General Reserve. Expenses are paid from General Reserve by default, or from any reserve you pick.
+  Transfer an amount (or the whole balance) between reserves. Reserves always add up to the balance.
 - Entries shown as tap cards: tap a card to edit or delete it
 
 ## Project structure
