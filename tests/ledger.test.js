@@ -424,7 +424,7 @@ test("R31: Ntorq petrol = weekly average of the last 4 weeks for the next 4 week
     ["Repair / Accessory", 1000, "month", 1000, "2026-09-27", "2026-10-26"]
   );
   assert.deepEqual(autoPlans(entries, "2026-09-26").map((l) => l.subcategory || l.category), [
-    "Mandatory Food", "Optional Food", "Petrol", "Repair / Accessory",
+    "Mandatory Food", "Optional Food", "Petrol", "Repair / Accessory", "Transport", "Bills & Utilities",
   ]);
 });
 
@@ -437,4 +437,44 @@ test("R31: the forecast spreads the Ntorq lines day by day across months and add
   // A budget for Ntorq counts if it is larger than the planned amount.
   const withBudget = cashflowForecast(entries, [{ category: "Ntorq", amount: 3000 }], [], "2026-09-26", 2, lines);
   assert.deepEqual([withBudget.rows[0].expense, withBudget.rows[1].expense], [400, 3000]);
+});
+
+test("R32: Transport = weekly average over the last 3 months for the next 3 weeks; Bills & Utilities = monthly average over the last 3 months for the next month", () => {
+  const entries = [
+    expense("2026-09-26", "Transport", 920), // today
+    expense("2026-06-27", "Transport", 920), // first day of the 3 months
+    expense("2026-06-26", "Transport", 5000), // just outside
+    expense("2026-09-05", "Bills & Utilities", 2500),
+    expense("2026-07-05", "Bills & Utilities", 2000),
+    expense("2026-10-01", "Bills & Utilities", 9999), // future-dated: not counted
+  ];
+  const lines = autoPlans(entries, "2026-09-26");
+  const transport = lines.find((l) => l.category === "Transport");
+  // 27 Jun – 26 Sep = 92 days = 13.14 weeks; ₹1,840 → ₹140/week; next 3 weeks = ₹420.
+  assert.deepEqual(
+    [transport.since, transport.spent, transport.rate, transport.unit, transport.amount, transport.from, transport.to, transport.horizon, transport.basis],
+    ["2026-06-27", 1840, 140, "week", 420, "2026-09-27", "2026-10-17", "next 3 weeks", "last 3 months"]
+  );
+  const bills = lines.find((l) => l.category === "Bills & Utilities");
+  assert.deepEqual(
+    [bills.spent, bills.rate, bills.unit, bills.amount, bills.to, bills.horizon],
+    [4500, 1500, "month", 1500, "2026-10-26", "next month"]
+  );
+});
+
+test("R28/R31/R32: the forecast spreads auto amounts in whole paise and never gives a day a negative share", () => {
+  const entries = [expense("2026-09-20", "Mandatory Food", 0.15)]; // ₹0.07 over 14 days
+  const lines = autoPlans(entries, "2026-09-26");
+  const food = lines.find((l) => l.category === "Mandatory Food");
+  const f = cashflowForecast(entries, [], [], "2026-09-26", 2, [food]);
+  assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, food.amount);
+  assert.ok(f.rows.every((r) => r.expense >= 0));
+});
+
+test("ordering is stable when some entries have no saved time", () => {
+  const a = { ...expense("2026-09-10", "Transport", 1), id: 1, createdAt: "2026-09-10T09:00:00.000Z" };
+  const b = { ...expense("2026-09-10", "Transport", 1), id: 2 };
+  const c = { ...expense("2026-09-10", "Transport", 1), id: 3, createdAt: "2026-09-10T08:00:00.000Z" };
+  const orders = [[a, b, c], [c, b, a], [b, a, c]].map((list) => chronological(list).map((e) => e.id).join());
+  assert.equal(new Set(orders).size, 1);
 });

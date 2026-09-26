@@ -111,7 +111,7 @@ test("R8/R9/R10: income reserves, income allotted elsewhere, expense paid from a
   await cards(3);
   await addEntry("expense", "Ntorq", 20000, { date: "2026-07-10", reserve: "Salary" });
   await cards(4);
-  await addEntry("expense", "Shopping", 45000, { date: "2026-08-03", reserve: "Salary" });
+  await addEntry("expense", "Dress", 45000, { date: "2026-08-03", reserve: "Salary" });
   await cards(5);
   await addEntry("expense", "Transport", 500, { date: "2026-08-04" });
   await cards(6);
@@ -131,7 +131,7 @@ test("R14/R13: report shows what happened to Salary of August (FIFO after July)"
   assert.match(text, /Used₹15,000\.00/);
   assert.match(text, /Left₹45,000\.00/);
   assert.match(text, /after the older money in this reserve was used up/);
-  assert.match(text, /Shopping/);
+  assert.match(text, /Dress/);
   assert.match(text, /₹15,000\.00 of ₹45,000\.00 — ₹30,000\.00 from Salary of July 2026/);
   assert.doesNotMatch(text, /Transport/, "General Reserve expense is not part of the salary report");
   await screen("");
@@ -298,7 +298,7 @@ async function startTransferAll(from, to) {
 test("R11: Transfer all never overdraws a reserve that is negative in one account", { skip }, async () => {
   await post("income", "Business", 3000);
   await cards(15);
-  await post("expense", "Shopping", 500, { reserve: "Business", account: "Cash" });
+  await post("expense", "Dress", 500, { reserve: "Business", account: "Cash" });
   await cards(16);
   assert.equal(await reserve("Business"), "₹2,500.00");
   await startTransferAll("Business", "General Reserve");
@@ -376,7 +376,7 @@ test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Re
   await settle();
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
   assert.deepEqual(names, [
-    "Mandatory Food", "Optional Food", "Ntorq", "Bills & Utilities", "Transport", "Shopping",
+    "Mandatory Food", "Optional Food", "Ntorq", "Bills & Utilities", "Transport", "Dress",
     "Health", "Education", "Entertainment", "Travel", "For Mom, Dad, Muthu", "Other",
   ]);
   await page.tap('#pick-grid .category-card:has-text("For Mom, Dad, Muthu")');
@@ -502,7 +502,7 @@ test("R24: reserve utilisation shows each receipt's use; a receipt shows where i
   const text = (await page.textContent("#report-body")).replace(/\s+/g, " ");
   assert.match(text, /Where did Salary of 1 Jul 2026 go\?/);
   assert.match(text, /Ntorq/);
-  assert.match(text, /Shopping/);
+  assert.match(text, /Dress/);
   await screen("");
 });
 
@@ -552,7 +552,10 @@ test("R26: planned cashflows feed the forecast and can be recorded as entries", 
   assert.equal(rows.length, 1 + 1 + 6, "header, today, 6 months");
   const next = rows[3];
   assert.equal(next[1], "+₹60,000");
-  assert.equal(next[2], "−₹5,000", "Mandatory Food budget (more than its auto plan)");
+  // Out = the Mandatory Food budget (more than its auto plan) plus the automatic lines that reach
+  // into next month (e.g. Transport); at least the budget.
+  const out = Number(next[2].replace(/[^\d.]/g, ""));
+  assert.ok(next[2].startsWith("−") && out >= 5000, next[2]);
 
   // Record the Ntorq plan: it becomes an entry and the one-time plan goes away.
   const before = (await (await page.request.get(URL_ + "api/entries")).json()).length;
@@ -613,7 +616,7 @@ test("R23: an old expense without a category opens from the spending report", { 
 test("R28: the Planned section shows automatic 14-day food lines from the last 30 days", { skip }, async () => {
   await screen("budget");
   const autos = await page.$$eval("#plan-list .auto-plan", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
-  assert.equal(autos.length, 4, "two food lines, then Ntorq petrol and repair");
+  assert.equal(autos.length, 6, "two food lines, Ntorq petrol and repair, Transport, Bills & Utilities");
   // Mandatory Food: ₹300 spent today (R17/R18) → ₹10/day → ₹140 for 14 days. Optional Food: nothing yet.
   assert.match(autos[0], /Mandatory Food.*next 14 days · ₹10\.00\/day.*−₹140\.00.*Auto/);
   assert.match(autos[1], /Optional Food.*₹0\.00\/day.*−₹0\.00/);
@@ -746,5 +749,23 @@ test("R31: automatic Ntorq lines: petrol for the next 4 weeks, repair for the ne
   assert.ok(shown.some((t) => t.includes("brake pads")));
   assert.ok(shown.every((t) => t.includes("Ntorq · Repair / Accessory")));
   await page.tap("#f-clear-quick");
+  await screen("");
+});
+
+test("R32/R33: Dress replaces Shopping; automatic Transport (3 weeks) and Bills & Utilities (1 month) lines", { skip }, async () => {
+  await screen("");
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
+  assert.ok(names.includes("Dress") && !names.includes("Shopping"));
+  await page.tap("#wizard-back");
+  await settle();
+
+  await screen("budget");
+  const row = async (label) => (await page.textContent(`#plan-list .auto-plan:has-text("${label}")`)).replace(/\s+/g, " ");
+  const transport = await row("Transport");
+  assert.match(transport, /next 3 weeks · ₹[\d,.]+\/week \(last 3 months' average\)/);
+  const bills = await row("Bills & Utilities");
+  assert.match(bills, /next month · ₹[\d,.]+\/month \(last 3 months' average\)/);
   await screen("");
 });

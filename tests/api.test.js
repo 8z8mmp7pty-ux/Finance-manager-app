@@ -105,8 +105,11 @@ test("R29: an expense can carry a type inside its category (Ntorq: Petrol); othe
   assert.equal(petrol.data.subcategory, "Petrol");
   const income = await post({ ...base, type: "income", category: "Salary", subcategory: "Petrol", amount: 1 });
   assert.equal(income.data.subcategory, "", "only expenses have a type");
-  const plain = await post({ ...base, type: "expense", category: "Transport", amount: 5 });
-  assert.equal(plain.data.subcategory, "");
+  const plain = await post({ ...base, type: "expense", category: "Transport", subcategory: "Petrol", amount: 5 });
+  assert.equal(plain.data.subcategory, "", "Transport has no types, so none is kept");
+  const unknown = await post({ ...base, type: "expense", category: "Ntorq", subcategory: "Tyres", amount: 5 });
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.data.error, /Petrol, Repair \/ Accessory/);
   assert.ok(plain.data.createdAt, "created time is returned (orders same-day entries)");
 });
 

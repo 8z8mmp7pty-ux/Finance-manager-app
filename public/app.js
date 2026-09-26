@@ -40,7 +40,7 @@ const CATEGORIES = {
     { name: "Ntorq", icon: "🛵" },
     { name: "Bills & Utilities", icon: "💡" },
     { name: "Transport", icon: "🚗" },
-    { name: "Shopping", icon: "🛍️" },
+    { name: "Dress", icon: "👗" },
     { name: "Health", icon: "💊" },
     { name: "Education", icon: "📚" },
     { name: "Entertainment", icon: "🎬" },
@@ -53,7 +53,7 @@ const CATEGORIES = {
 const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra" };
 
 // Icons for categories that were replaced, so entries saved with them keep their look.
-const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳", "Food & Dining": "🍽️", Groceries: "🛒" };
+const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳", "Food & Dining": "🍽️", Groceries: "🛒", Shopping: "🛍️" };
 
 function categoryIcon(type, name) {
   const found = (CATEGORIES[type] || []).find((c) => c.name === name);
@@ -725,7 +725,8 @@ function renderAmountChoices() {
 }
 
 function startFlow(flow) {
-  if (draft.flow !== flow) Object.assign(draft, { category: null, from: null, to: null, fromAccount: null, toAccount: null });
+  // Starting from the type cards always begins a fresh choice (no leftover Ntorq type step).
+  Object.assign(draft, { category: null, subcategory: "", from: null, to: null, fromAccount: null, toAccount: null });
   draft.flow = flow;
   draft.reserve = GENERAL;
   draft.account = DEFAULT_ACCOUNT;
@@ -1288,6 +1289,12 @@ function renderSpending() {
     split.append(b);
   }
   reportBody.append(split);
+  if (report.bySubcategory && report.period === "this-month") {
+    const parentBudgets = budgets.filter((b) => SUBCATEGORIES[b.category]);
+    for (const b of parentBudgets) {
+      reportBody.append(el("p", "step-hint", `${b.category} budget this month: ${currency.format(b.amount)} (for all its types together)`));
+    }
+  }
 
   const { total, rows } = spendingByCategory(entries, { period: report.period }, today(), { bySubcategory: report.bySubcategory });
   const budgetOf = new Map(budgets.map((b) => [b.category, b.amount]));

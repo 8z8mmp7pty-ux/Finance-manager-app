@@ -1,5 +1,6 @@
 import { query, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT, ACCOUNTS } from "../lib/db.js";
 import { send, readBody, text } from "../lib/http.js";
+import { SUBCATEGORIES } from "../public/ledger.js";
 
 function validate(body) {
   const type = body.type;
@@ -25,7 +26,12 @@ function validate(body) {
     return "Account must be one of: " + ACCOUNTS.join(", ");
   }
 
-  if (type !== "expense" || !category) subcategory = "";
+  // Only expense categories with types inside them (Ntorq) take one, and only a known type.
+  const allowed = type === "expense" ? SUBCATEGORIES[category] : null;
+  if (!allowed) subcategory = "";
+  else if (subcategory && !allowed.some((s) => s.name === subcategory)) {
+    return "Type must be one of: " + allowed.map((s) => s.name).join(", ");
+  }
 
   if (type === "contra") {
     // Moves money between accounts; the reserve it belongs to stays the same.
