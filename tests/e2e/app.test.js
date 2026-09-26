@@ -613,7 +613,7 @@ test("R23: an old expense without a category opens from the spending report", { 
 test("R28: the Planned section shows automatic 14-day food lines from the last 30 days", { skip }, async () => {
   await screen("budget");
   const autos = await page.$$eval("#plan-list .auto-plan", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
-  assert.equal(autos.length, 2);
+  assert.equal(autos.length, 4, "two food lines, then Ntorq petrol and repair");
   // Mandatory Food: ₹300 spent today (R17/R18) → ₹10/day → ₹140 for 14 days. Optional Food: nothing yet.
   assert.match(autos[0], /Mandatory Food.*next 14 days · ₹10\.00\/day.*−₹140\.00.*Auto/);
   assert.match(autos[1], /Optional Food.*₹0\.00\/day.*−₹0\.00/);
@@ -697,6 +697,54 @@ test("R30: the spending report switches between Ntorq as one line and one line p
   assert.equal(shown.length, ntorq.filter((e) => e.subcategory === "Petrol").length);
   assert.ok(shown.every((t) => t.includes("Ntorq · Petrol")));
   assert.match(await page.textContent("#filter-summary"), /^Ntorq · Petrol: /);
+  await page.tap("#f-clear-quick");
+  await screen("");
+});
+
+test("R31: automatic Ntorq lines: petrol for the next 4 weeks, repair for the next month", { skip }, async () => {
+  const today = localToday();
+  const shift = (days) => {
+    const d = new Date(today + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  // A repair within the last 3 months, so both lines have something to average.
+  const res = await page.request.post(URL_ + "api/entries", {
+    data: { type: "expense", category: "Ntorq", subcategory: "Repair / Accessory", description: "brake pads", amount: 2400, date: shift(-20) },
+  });
+  assert.equal(res.status(), 201);
+  await page.reload();
+  await page.waitForSelector("#app:not([hidden])");
+  await screen("budget");
+
+  const entries = await (await page.request.get(URL_ + "api/entries")).json();
+  const sum = (sub, since) =>
+    entries.filter((e) => e.category === "Ntorq" && e.subcategory === sub && e.date >= since && e.date <= today).reduce((s, e) => s + e.amount, 0);
+  const inr = (n) => "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const petrol = sum("Petrol", shift(-27));
+  const [y, m, d] = today.split("-").map(Number);
+  const threeMonthsAgo = new Date(Date.UTC(y, m - 1 - 3, 1));
+  const lastDay = new Date(Date.UTC(threeMonthsAgo.getUTCFullYear(), threeMonthsAgo.getUTCMonth() + 1, 0)).getUTCDate();
+  threeMonthsAgo.setUTCDate(Math.min(d, lastDay) + 1);
+  const repair = sum("Repair / Accessory", threeMonthsAgo.toISOString().slice(0, 10));
+
+  const row = async (label) => (await page.textContent(`#plan-list .auto-plan:has-text("${label}")`)).replace(/\s+/g, " ");
+  const petrolRow = await row("Ntorq · Petrol");
+  assert.match(petrolRow, /next 4 weeks/);
+  assert.ok(petrolRow.includes(`${inr(petrol / 4)}/week (last 4 weeks' average)`), petrolRow);
+  assert.ok(petrolRow.includes("−" + inr(petrol)), petrolRow);
+  assert.match(petrolRow, /⛽/);
+  const repairRow = await row("Ntorq · Repair / Accessory");
+  assert.ok(repairRow.includes(`next month · ${inr(repair / 3)}/month (last 3 months' average)`), repairRow);
+  assert.ok(repairRow.includes("−" + inr(repair / 3)), repairRow);
+  assert.match(repairRow, /🔧/);
+
+  // Tapping a line shows the entries it averages.
+  await page.tap('#plan-list .auto-plan:has-text("Ntorq · Repair / Accessory") .plan-row');
+  await page.waitForSelector("#screen-entries:not([hidden])");
+  const shown = await page.$$eval("#entries .entry-card", (els) => els.map((e) => e.innerText));
+  assert.ok(shown.some((t) => t.includes("brake pads")));
+  assert.ok(shown.every((t) => t.includes("Ntorq · Repair / Accessory")));
   await page.tap("#f-clear-quick");
   await screen("");
 });

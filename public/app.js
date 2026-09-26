@@ -17,7 +17,7 @@ import {
   budgetStatus,
   cashflowForecast,
   UNCATEGORISED,
-  autoFoodPlans,
+  autoPlans as autoPlanLines,
   SUBCATEGORIES,
   UNCLASSIFIED,
 } from "./ledger.js";
@@ -1562,20 +1562,22 @@ function renderBudget() {
     budgetList.append(li);
   }
 
-  // Planned cashflows: the automatic food lines first, then the plans you added.
+  // Planned cashflows: the automatic lines first (food, Ntorq), then the plans you added.
   planList.innerHTML = "";
-  const autoPlans = autoFoodPlans(entries, today());
+  const autoPlans = autoPlanLines(entries, today());
   for (const auto of autoPlans) {
     const li = el("li", "plan-item auto-plan");
     const btn = el("button", "report-row plan-row");
     btn.type = "button";
-    btn.setAttribute("aria-label", `${auto.category}: automatic plan for the next ${auto.nextDays} days. Tap to see the last ${auto.pastDays} days`);
+    const name = categoryTitle(auto);
+    btn.setAttribute("aria-label", `${name}: automatic plan for the ${auto.horizon}. Tap to see the ${auto.basis}`);
     const info = el("div", "entry-info");
-    const meta = `next ${auto.nextDays} days · ${currency.format(auto.perDay)}/day (last ${auto.pastDays} days' average)`;
-    info.append(el("p", "entry-desc", auto.category), el("p", "entry-date", meta));
-    btn.append(el("span", "row-icon", categoryIcon("expense", auto.category)), info, el("span", "entry-amount expense", "−" + currency.format(auto.amount)));
+    const meta = `${auto.horizon} · ${currency.format(auto.rate)}/${auto.unit} (${auto.basis}' average)`;
+    info.append(el("p", "entry-desc", name), el("p", "entry-date", meta));
+    const icon = auto.subcategory ? subcategoryIcon(auto.category, auto.subcategory) : categoryIcon("expense", auto.category);
+    btn.append(el("span", "row-icon", icon), info, el("span", "entry-amount expense", "−" + currency.format(auto.amount)));
     btn.addEventListener("click", () =>
-      showEntries({ type: "expense", category: auto.category, from: autoPlanSince(auto), to: today() })
+      showEntries({ type: "expense", category: auto.category, subcategory: auto.subcategory, from: auto.since, to: today() })
     );
     li.append(btn, el("span", "auto-badge", "Auto"));
     planList.append(li);
@@ -1624,13 +1626,6 @@ function renderBudget() {
     tbody.append(tr);
   }
   forecastTable.append(thead, tbody);
-}
-
-// First day of the period an automatic plan averages over.
-function autoPlanSince(auto) {
-  const d = new Date(today() + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() - (auto.pastDays - 1));
-  return d.toISOString().slice(0, 10);
 }
 
 // Budget sheet

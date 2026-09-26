@@ -442,26 +442,112 @@ function addDays(date, days) {
   return d.toISOString().slice(0, 10);
 }
 
+function daysInclusive(from, to) {
+  return Math.round((Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / 86400000) + 1;
+}
+
+function spentOn(entries, category, subcategory, since, today) {
+  return entries
+    .filter(
+      (e) =>
+        e.type === "expense" &&
+        e.category === category &&
+        (subcategory === undefined || e.subcategory === subcategory) &&
+        e.date >= since &&
+        e.date <= today
+    )
+    .reduce((s, e) => s + e.amount, 0);
+}
+
+// One automatic plan line: `amount` is expected between `from` and `to` (inclusive), worked out from
+// the average `rate` per `unit` over the spending since `since`.
+function autoLine({ category, subcategory = "", spent, since, from, to, amount, rate, unit, horizon, basis }) {
+  return {
+    auto: true,
+    type: "expense",
+    category,
+    subcategory,
+    spent: round(spent),
+    since,
+    from,
+    to,
+    days: daysInclusive(from, to),
+    amount: round(amount),
+    rate: round(rate),
+    unit,
+    horizon,
+    basis,
+  };
+}
+
 // Automatic food plans: for each food type, its average spending per day over the last 30 days
 // (today included), planned for each of the next 14 days (tomorrow onwards).
 export function autoFoodPlans(entries, today, { pastDays = 30, nextDays = 14 } = {}) {
   const since = addDays(today, -(pastDays - 1));
   return FOOD_TYPES.map((category) => {
-    const spent = entries
-      .filter((e) => e.type === "expense" && e.category === category && e.date >= since && e.date <= today)
-      .reduce((s, e) => s + e.amount, 0);
-    const perDay = round(spent / pastDays);
-    const amount = round((spent * nextDays) / pastDays);
-    const from = addDays(today, 1);
-    const to = addDays(today, nextDays);
-    return { auto: true, type: "expense", category, perDay, amount, from, to, pastDays, nextDays, spent: round(spent) };
+    const spent = spentOn(entries, category, undefined, since, today);
+    const line = autoLine({
+      category,
+      spent,
+      since,
+      from: addDays(today, 1),
+      to: addDays(today, nextDays),
+      amount: (spent * nextDays) / pastDays,
+      rate: spent / pastDays,
+      unit: "day",
+      horizon: `next ${nextDays} days`,
+      basis: `last ${pastDays} days`,
+    });
+    return { ...line, perDay: line.rate, pastDays, nextDays };
   });
+}
+
+// Automatic Ntorq plans: petrol at its average per week over the last 4 weeks, for the next 4 weeks;
+// repair / accessory at its average per month over the last 3 months, for the next month.
+export function autoNtorqPlans(entries, today) {
+  const petrolSince = addDays(today, -27); // 4 weeks, today included
+  const petrol = spentOn(entries, "Ntorq", "Petrol", petrolSince, today);
+  const repairSince = addDays(addMonths(today, -3), 1); // 3 months, today included
+  const repair = spentOn(entries, "Ntorq", "Repair / Accessory", repairSince, today);
+  return [
+    autoLine({
+      category: "Ntorq",
+      subcategory: "Petrol",
+      spent: petrol,
+      since: petrolSince,
+      from: addDays(today, 1),
+      to: addDays(today, 28),
+      amount: petrol, // 4 weeks at the weekly average = what 4 weeks cost
+      rate: petrol / 4,
+      unit: "week",
+      horizon: "next 4 weeks",
+      basis: "last 4 weeks",
+    }),
+    autoLine({
+      category: "Ntorq",
+      subcategory: "Repair / Accessory",
+      spent: repair,
+      since: repairSince,
+      from: addDays(today, 1),
+      to: addMonths(today, 1),
+      amount: repair / 3,
+      rate: repair / 3,
+      unit: "month",
+      horizon: "next month",
+      basis: "last 3 months",
+    }),
+  ];
+}
+
+// Every automatic plan line: food first, then Ntorq.
+export function autoPlans(entries, today) {
+  return [...autoFoodPlans(entries, today), ...autoNtorqPlans(entries, today)];
 }
 
 // Month-by-month forecast from the current balance: planned income in, and for each expense
 // category the larger of its budget and what is planned for it (this month: the budget left).
-// Automatic food plans count day by day, so days that fall in next month count there.
-export function cashflowForecast(entries, budgets, plans, today, months = 6, autoPlans = []) {
+// Automatic plans count day by day, so days that fall in next month count there.
+export function cashflowForecast(entries, budgets, plans, today, months = 6, autoLines = []) {
   const first = monthOf(today);
   const until = addMonths(monthStart(first), months);
   const spentThisMonth = new Map(spendingByCategory(entries, { period: "this-month" }, today).rows.map((r) => [r.category, r.amount]));
@@ -479,15 +565,16 @@ export function cashflowForecast(entries, budgets, plans, today, months = 6, aut
     }
   }
 
-  for (const auto of autoPlans) {
-    if (!(auto.perDay > 0)) continue;
+  for (const auto of autoLines) {
+    if (!(auto.amount > 0)) continue;
+    const perDay = round(auto.amount / auto.days);
     let assigned = 0;
     for (let date = auto.from; date <= auto.to && date < until; date = addDays(date, 1)) {
       const m = monthOf(date);
       if (!planned.has(m)) planned.set(m, { income: 0, expense: new Map(), items: [] });
       const bucket = planned.get(m);
       // The last day takes the leftover paisa, so the days add up to the amount shown.
-      const share = date === auto.to ? round(auto.amount - assigned) : auto.perDay;
+      const share = date === auto.to ? round(auto.amount - assigned) : perDay;
       assigned = round(assigned + share);
       bucket.expense.set(auto.category, round((bucket.expense.get(auto.category) || 0) + share));
     }

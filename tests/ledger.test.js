@@ -3,7 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
-  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological } from "../public/ledger.js";
+  budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
+  autoNtorqPlans, autoPlans } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -400,4 +401,40 @@ test("R28: the 14-day food amount is rounded once, and the forecast days add up 
   assert.equal(m.amount, 46.67);
   const f = cashflowForecast(entries, [], [], "2026-09-26", 2, [m]);
   assert.equal(Math.round((f.rows[0].expense + f.rows[1].expense) * 100) / 100, 46.67);
+});
+
+test("R31: Ntorq petrol = weekly average of the last 4 weeks for the next 4 weeks; repair = monthly average of the last 3 months for the next month", () => {
+  const ntorq = (date, sub, amount) => ({ ...expense(date, "Ntorq", amount), subcategory: sub });
+  const entries = [
+    ntorq("2026-09-26", "Petrol", 500), // today
+    ntorq("2026-08-30", "Petrol", 700), // 28th day back: included
+    ntorq("2026-08-29", "Petrol", 999), // 29 days back: not included
+    ntorq("2026-07-10", "Repair / Accessory", 1800), // within 3 months
+    ntorq("2026-06-27", "Repair / Accessory", 1200), // first day of the 3 months
+    ntorq("2026-06-26", "Repair / Accessory", 5000), // just outside
+    expense("2026-09-20", "Ntorq", 300), // unclassified: neither
+  ];
+  const [petrol, repair] = autoNtorqPlans(entries, "2026-09-26");
+  assert.deepEqual(
+    [petrol.subcategory, petrol.rate, petrol.unit, petrol.amount, petrol.from, petrol.to, petrol.days],
+    ["Petrol", 300, "week", 1200, "2026-09-27", "2026-10-24", 28]
+  );
+  assert.deepEqual(
+    [repair.subcategory, repair.rate, repair.unit, repair.amount, repair.from, repair.to],
+    ["Repair / Accessory", 1000, "month", 1000, "2026-09-27", "2026-10-26"]
+  );
+  assert.deepEqual(autoPlans(entries, "2026-09-26").map((l) => l.subcategory || l.category), [
+    "Mandatory Food", "Optional Food", "Petrol", "Repair / Accessory",
+  ]);
+});
+
+test("R31: the forecast spreads the Ntorq lines day by day across months and adds them to Ntorq", () => {
+  const entries = [{ ...expense("2026-09-26", "Ntorq", 2800), subcategory: "Petrol" }]; // 700/week, 100/day
+  const lines = autoPlans(entries, "2026-09-26");
+  const f = cashflowForecast(entries, [], [], "2026-09-26", 2, lines);
+  // Petrol: 27–30 Sep = 4 days (400), 1–24 Oct = 24 days (2,400).
+  assert.deepEqual([f.rows[0].expense, f.rows[1].expense], [400, 2400]);
+  // A budget for Ntorq counts if it is larger than the planned amount.
+  const withBudget = cashflowForecast(entries, [{ category: "Ntorq", amount: 3000 }], [], "2026-09-26", 2, lines);
+  assert.deepEqual([withBudget.rows[0].expense, withBudget.rows[1].expense], [400, 3000]);
 });
