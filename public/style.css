@@ -647,6 +647,7 @@ dialog.add-sheet[open] { display: flex; align-items: flex-end; justify-content: 
 dialog.add-sheet .wizard {
   width: min(100%, 480px);
   max-height: 90vh;
+  max-height: 90dvh; /* the visible screen: above the phone keyboard */
   margin: 0;
   overflow-y: auto;
   overscroll-behavior: contain;

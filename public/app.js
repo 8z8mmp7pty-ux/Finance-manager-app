@@ -358,7 +358,9 @@ function fitPage() {
   mainEl.classList.toggle("fits", fits);
   mainEl.classList.toggle("fab-room", !fits);
 }
+// #app changes size with the screen; the page's message above it moves it without resizing it.
 new ResizeObserver(fitPage).observe(document.getElementById("app"));
+new ResizeObserver(fitPage).observe(statusEl);
 window.addEventListener("resize", fitPage);
 
 // Keep a "Transfer all" amount in step with the data (e.g. after an entry is edited).
@@ -805,7 +807,10 @@ addDialog.addEventListener("pointerdown", (event) => {
   pressedOutside = event.target === addDialog;
 });
 addDialog.addEventListener("click", async (event) => {
-  const outside = event.target === addDialog && pressedOutside;
+  // A mouse press outside that is released on the sheet also reports the dialog: check where it landed.
+  const r = wizard.getBoundingClientRect();
+  const onSheet = event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+  const outside = event.target === addDialog && pressedOutside && !onSheet;
   pressedOutside = false;
   if (!outside || postBtn.disabled) return; // postBtn is disabled while a post is on its way
   if (!entryReady()) return closeAdd();

@@ -972,6 +972,22 @@ test("R41: Add Entry is a popup from the + button; a tap outside closes it, or p
   await page.waitForFunction(() => !document.getElementById("add-dialog").open);
   await cdp.detach();
 
+  // A mouse press outside released on the sheet is not a tap outside (a ready entry is not posted).
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.fill("#amount", "5");
+  const sheet = await page.locator("#wizard").boundingBox();
+  await page.mouse.move(200, 10);
+  await page.mouse.down();
+  await page.mouse.move(sheet.x + 40, sheet.y + 40);
+  await page.mouse.up();
+  assert.ok(await addOpen(), "still open");
+  assert.equal(await count(), before);
+  await page.tap("#add-close");
+
   // Nothing typed: a tap outside just closes it.
   await openAdd();
   await outside();
@@ -1155,6 +1171,19 @@ test("R42: a page that fits on the screen does not scroll; a longer one leaves r
   await page.waitForFunction(() => document.querySelector("main").classList.contains("fits"));
   assert.equal(await page.evaluate(() => document.documentElement.scrollHeight), 1100);
   assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).overscrollBehaviorY), "none");
+  // A message at the top of the page makes it longer: it gets room for the + button again.
+  const fitHeight = await page.evaluate(() => Math.ceil(document.getElementById("app").getBoundingClientRect().bottom + 2));
+  await page.setViewportSize({ width: 390, height: fitHeight });
+  await page.waitForFunction(() => document.querySelector("main").classList.contains("fits"));
+  await page.evaluate(() => {
+    const st = document.getElementById("status");
+    st.textContent = "Something to read";
+    st.hidden = false;
+  });
+  await page.waitForFunction(() => document.querySelector("main").classList.contains("fab-room"));
+  await page.evaluate(() => (document.getElementById("status").hidden = true));
+  await page.waitForFunction(() => document.querySelector("main").classList.contains("fits"));
+
   // A short screen: the page scrolls and the last card can scroll clear of the + button.
   await page.setViewportSize({ width: 390, height: 500 });
   await page.waitForFunction(() => document.querySelector("main").classList.contains("fab-room"));
