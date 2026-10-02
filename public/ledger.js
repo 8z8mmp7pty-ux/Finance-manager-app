@@ -57,13 +57,17 @@ export function isReimbursement(e) {
 // How each reimbursement was set against expenses, oldest reimbursement first. An allocation never
 // pays back more than is left of the expense or of the reimbursement; allocations to an expense
 // that no longer exists are ignored (that money stays in the reimbursement).
-// Returns { paidBack: Map(expenseId -> amount), allocated: Map(reimbursementId -> amount) }.
+// Returns { paidBack: Map(expenseId -> amount), allocated: Map(reimbursementId -> amount),
+// effective: Map(reimbursementId -> [{ expenseId, amount }] as they actually apply) }.
 export function reimbursements(entries) {
   const expenses = new Map(entries.filter((e) => e.type === "expense").map((e) => [String(e.id), e]));
   const paidBack = new Map();
   const allocated = new Map();
+  const effective = new Map();
   for (const r of chronological(entries.filter(isReimbursement))) {
     let left = r.amount;
+    const applied = [];
+    effective.set(String(r.id), applied);
     for (const a of r.allocations || []) {
       const id = String(a.expenseId);
       const expense = expenses.get(id);
@@ -72,25 +76,47 @@ export function reimbursements(entries) {
       if (amount <= EPSILON) continue;
       paidBack.set(id, round((paidBack.get(id) || 0) + amount));
       left = round(left - amount);
+      applied.push({ expenseId: a.expenseId, amount });
     }
     allocated.set(String(r.id), round(r.amount - left));
   }
-  return { paidBack, allocated };
+  return { paidBack, allocated, effective };
 }
 
 // The entries as the books see them: an expense counts only what was not reimbursed, and a
 // reimbursement only what was not set against expenses (fully covered ones drop out). Balances,
 // reserves, reports, budgets and the forecast use these; the Entries list shows the originals.
+//
+// The money paid back arrives in the reimbursement's account, though: when that is not the account
+// the expense was paid from, a contra (expense's account → reimbursement's account, within the
+// expense's reserve) keeps every account balance as it really is.
 export function netOfReimbursements(entries) {
-  const { paidBack, allocated } = reimbursements(entries);
+  const { paidBack, allocated, effective } = reimbursements(entries);
   if (!paidBack.size) return entries;
   const out = [];
+  const byId = new Map(entries.map((e) => [String(e.id), e]));
   for (const e of entries) {
     const less = e.type === "expense" ? paidBack.get(String(e.id)) : isReimbursement(e) ? allocated.get(String(e.id)) : 0;
     if (!less) out.push(e);
     else if (e.amount - less > EPSILON) out.push({ ...e, amount: round(e.amount - less) });
+    if (!isReimbursement(e)) continue;
+    for (const a of effective.get(String(e.id)) || []) {
+      const expense = byId.get(String(a.expenseId));
+      if (!expense || !e.account || !expense.account || expense.account === e.account) continue;
+      out.push({
+        id: `reimb-${e.id}-${a.expenseId}`, type: "contra", category: "", subcategory: "", description: "",
+        reserve: expense.reserve, toReserve: "", account: expense.account, toAccount: e.account,
+        amount: a.amount, date: e.date, createdAt: e.createdAt,
+      });
+    }
   }
   return out;
+}
+
+// What a reimbursement is set against as it actually applies now (expenses deleted or lowered since
+// are left out or capped): what the editor saves back, so an edit never fails on old allocations.
+export function effectiveAllocations(entries, reimbursementId) {
+  return (reimbursements(entries).effective.get(String(reimbursementId)) || []).map((a) => ({ ...a }));
 }
 
 // Expenses that still have something left to reimburse, newest first: { entry, left }.

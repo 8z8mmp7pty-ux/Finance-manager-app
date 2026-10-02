@@ -181,3 +181,30 @@ test("R44: a reimbursement is saved with the expenses it pays back, and cannot p
   const salary = await post({ ...base, type: "income", category: "Salary", amount: 5, allocations: [{ expenseId: lunch.id, amount: 1 }] });
   assert.deepEqual(salary.data.allocations, []);
 });
+
+test("R44/R5: a reimbursement stays editable after its expense is lowered or deleted", { skip }, async () => {
+  const a = (await post({ ...base, type: "expense", category: "Health", amount: 1000 })).data;
+  const b = (await post({ ...base, type: "expense", category: "Dress", amount: 200 })).data;
+  const r = (await post({ ...base, type: "income", category: "Reimbursement", amount: 1500,
+    allocations: [{ expenseId: a.id, amount: 1000 }, { expenseId: b.id, amount: 200 }] })).data;
+  // The expense is lowered, the other one deleted.
+  assert.equal((await call(handler, "PUT", `/api/entries?id=${a.id}`, { ...base, type: "expense", category: "Health", amount: 500 })).status, 200);
+  assert.equal((await call(handler, "DELETE", `/api/entries?id=${b.id}`)).status, 200);
+  // Saving the reimbursement as it was (only the note changed) still works; the deleted one is dropped.
+  const put = await call(handler, "PUT", `/api/entries?id=${r.id}`, { ...base, description: "Office", type: "income", category: "Reimbursement",
+    amount: 1500, allocations: r.allocations });
+  assert.equal(put.status, 200, JSON.stringify(put.data));
+  assert.deepEqual(put.data.allocations, [{ expenseId: Number(a.id), amount: 1000 }]);
+  // But it cannot be raised above what was saved before beyond what is left.
+  const more = await call(handler, "PUT", `/api/entries?id=${r.id}`, { ...base, type: "income", category: "Reimbursement",
+    amount: 1500, allocations: [{ expenseId: a.id, amount: 1200 }] });
+  assert.equal(more.status, 400);
+});
+
+test("R44: two reimbursements saved at once cannot both pay back the same expense", { skip }, async () => {
+  const a = (await post({ ...base, type: "expense", category: "Health", amount: 100 })).data;
+  const results = await Promise.all([1, 2, 3].map(() =>
+    post({ ...base, type: "income", category: "Reimbursement", amount: 100, allocations: [{ expenseId: a.id, amount: 100 }] })
+  ));
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 400, 400]);
+});

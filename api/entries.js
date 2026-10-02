@@ -1,4 +1,4 @@
-import { query, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT, ACCOUNTS } from "../lib/db.js";
+import { query, getPool, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT, ACCOUNTS } from "../lib/db.js";
 import { send, readBody, text } from "../lib/http.js";
 import { SUBCATEGORIES, REIMBURSEMENT, reimbursements } from "../public/ledger.js";
 
@@ -82,22 +82,62 @@ function validate(body) {
 }
 
 // Every allocated expense must exist and still have that much left to reimburse (other
-// reimbursements count; `selfId` is the reimbursement being edited).
-async function checkAllocations(entry, selfId = null) {
+// reimbursements count; `selfId` is the reimbursement being edited). When editing, an allocation
+// that is no larger than before is kept as it was saved (its expense may have been lowered since —
+// the books cap it), and one whose expense was deleted is dropped, so an edit never gets stuck.
+// Runs inside the write's transaction (`db`), after a lock, so two saves can't both pay back the
+// same expense.
+async function checkAllocations(db, entry, selfId = null) {
   if (!entry.allocations.length) return null;
-  const { rows } = await query(
+  const { rows } = await db.query(
     "SELECT id, type, category, amount, allocations, created_at AS \"createdAt\", to_char(entry_date, 'YYYY-MM-DD') AS date FROM entries WHERE type = 'expense' OR (type = 'income' AND category = $1)",
     [REIMBURSEMENT]
   );
-  const others = rows.filter((r) => selfId === null || String(r.id) !== String(selfId));
+  const self = selfId === null ? null : rows.find((r) => String(r.id) === String(selfId));
+  const before = new Map((self?.allocations || []).map((a) => [String(a.expenseId), a.amount]));
+  const others = rows.filter((r) => r !== self);
   const { paidBack } = reimbursements(others);
+  const kept = [];
   for (const a of entry.allocations) {
-    const expense = others.find((r) => r.type === "expense" && String(r.id) === String(a.expenseId));
-    if (!expense) return "An allocated expense no longer exists";
-    const left = Math.round((expense.amount - (paidBack.get(String(expense.id)) || 0)) * 100) / 100;
-    if (a.amount > left + 0.001) return `Only ${left.toFixed(2)} of that expense is left to reimburse`;
+    const id = String(a.expenseId);
+    const expense = others.find((r) => r.type === "expense" && String(r.id) === id);
+    if (!expense) {
+      if (before.has(id)) continue;
+      return "An allocated expense no longer exists";
+    }
+    if (!(before.has(id) && a.amount <= before.get(id) + 0.001)) {
+      const left = Math.round((expense.amount - (paidBack.get(id) || 0)) * 100) / 100;
+      if (a.amount > left + 0.001) return `Only ${left.toFixed(2)} of that expense is left to reimburse`;
+    }
+    kept.push(a);
   }
+  entry.allocations = kept;
   return null;
+}
+
+// Saves a reimbursement's allocations under a lock (checked and written together); other entries
+// are written straight away.
+async function save(entry, write, selfId = null) {
+  if (!entry.allocations.length) return { rows: (await write({ query })).rows };
+  await query("SELECT 1"); // makes sure the schema is ready
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(4401)");
+    const bad = await checkAllocations(client, entry, selfId);
+    if (bad) {
+      await client.query("ROLLBACK");
+      return { error: bad };
+    }
+    const { rows } = await write(client);
+    await client.query("COMMIT");
+    return { rows };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 const SELECT_COLUMNS =
@@ -121,17 +161,15 @@ export default async function handler(req, res) {
       }
       const entry = validate(body || {});
       if (typeof entry === "string") return send(res, 400, { error: entry });
-      const bad = await checkAllocations(entry);
-      if (bad) return send(res, 400, { error: bad });
-
-      const { rows } = await query(
+      const { rows, error } = await save(entry, (db) => db.query(
         `INSERT INTO entries
            (type, category, description, reserve, to_reserve, account, to_account, amount, entry_date, subcategory, allocations)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING ${SELECT_COLUMNS}`,
         [entry.type, entry.category, entry.description, entry.reserve, entry.toReserve,
          entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory, JSON.stringify(entry.allocations)]
-      );
+      ));
+      if (error) return send(res, 400, { error });
       return send(res, 201, rows[0]);
     }
 
@@ -147,10 +185,7 @@ export default async function handler(req, res) {
       }
       const entry = validate(body || {});
       if (typeof entry === "string") return send(res, 400, { error: entry });
-      const bad = await checkAllocations(entry, id);
-      if (bad) return send(res, 400, { error: bad });
-
-      const { rows } = await query(
+      const { rows, error } = await save(entry, (db) => db.query(
         `UPDATE entries
          SET type = $1, category = $2, description = $3, reserve = $4, to_reserve = $5,
              account = $6, to_account = $7, amount = $8, entry_date = $9, subcategory = $10, allocations = $11
@@ -158,7 +193,8 @@ export default async function handler(req, res) {
          RETURNING ${SELECT_COLUMNS}`,
         [entry.type, entry.category, entry.description, entry.reserve, entry.toReserve,
          entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory, JSON.stringify(entry.allocations), id]
-      );
+      ), id);
+      if (error) return send(res, 400, { error });
       return rows.length ? send(res, 200, rows[0]) : send(res, 404, { error: "Entry not found" });
     }
 

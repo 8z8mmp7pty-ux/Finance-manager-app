@@ -5,7 +5,7 @@ import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reser
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
   budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
   autoNtorqPlans, autoPlans, availableToSpend, spendable, availableExplanation, forecastEnd, planDates,
-  SUBCATEGORIES, REIMBURSEMENT, reimbursements, netOfReimbursements, reimbursableExpenses, lastExpenseReserve } from "../public/ledger.js";
+  SUBCATEGORIES, REIMBURSEMENT, reimbursements, netOfReimbursements, reimbursableExpenses, effectiveAllocations, lastExpenseReserve } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -832,4 +832,31 @@ test("R45: a new expense defaults to the reserve of the last expense entered", (
     { ...income("2026-09-26", "Salary", 10), id: 3, reserve: "Salary", createdAt: "2026-09-26T10:00:00Z" }, // not an expense
   ];
   assert.equal(lastExpenseReserve(entries), REIMBURSEMENT);
+});
+
+test("R44/R17/R20: a reimbursement received in another account keeps every account balance as it really is", () => {
+  const salary = { ...income("2026-09-01", "Salary", 10000), id: 1, account: "Super Money" };
+  const health = { ...expense("2026-09-02", "Health", 1000), id: 2, reserve: "Salary", account: "Super Money" };
+  const back = { ...reimb("2026-09-05", 1200, [{ expenseId: 2, amount: 1000 }], 3), account: "GPay" };
+  const entries = [salary, health, back];
+  const books = netOfReimbursements(entries);
+  const raw = Object.fromEntries(accountBalances(entries).map((a) => [a.name, a.balance]));
+  const net = Object.fromEntries(accountBalances(books).map((a) => [a.name, a.balance]));
+  assert.deepEqual(net, raw, "Super Money 9,000 and GPay 1,200, as they really are");
+  assert.deepEqual([raw["Super Money"], raw.GPay], [9000, 1200]);
+  // The reserves get their money back, and the reserves × accounts grid still adds up both ways.
+  const grid = reserveAccountGrid(books);
+  assert.equal(grid.cell("Salary", "Super Money") + grid.cell("Salary", "GPay"), 10000);
+  assert.equal(grid.cell(REIMBURSEMENT, "GPay"), 200);
+  // Transfer all of Salary never takes more from an account than it holds.
+  const plan = transferAllPlan(books, "Salary");
+  assert.deepEqual(plan.map((p) => [p.account, p.amount]).sort(), [["GPay", 1000], ["Super Money", 9000]]);
+  assert.equal(totalsOf(books).net, totalsOf(entries).net);
+});
+
+test("R44/R5: a reimbursement's allocations as they apply now (expense lowered or deleted since)", () => {
+  const a = { ...expense("2026-09-02", "Health", 500), id: 1 }; // was 1,000 when it was set
+  const r = reimb("2026-09-05", 1500, [{ expenseId: 1, amount: 1000 }, { expenseId: 7, amount: 300 }], 2); // 7 deleted
+  assert.deepEqual(effectiveAllocations([a, r], 2), [{ expenseId: 1, amount: 500 }]);
+  assert.deepEqual(reimbursements([a, r]).effective.get("2"), [{ expenseId: 1, amount: 500 }]);
 });

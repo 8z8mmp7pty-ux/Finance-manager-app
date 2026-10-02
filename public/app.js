@@ -30,6 +30,7 @@ import {
   reimbursements,
   netOfReimbursements,
   reimbursableExpenses,
+  effectiveAllocations,
   lastExpenseReserve,
 } from "./ledger.js";
 
@@ -290,7 +291,7 @@ function describe(entry) {
   }
   const note = entry.category ? entry.description : "";
   const back = entry.type === "expense" ? reimbursed.paidBack.get(String(entry.id)) : 0;
-  const against = isReimbursement(entry) ? (entry.allocations || []).length : 0;
+  const against = isReimbursement(entry) ? (reimbursed.effective.get(String(entry.id)) || []).length : 0;
   const reimbNote = back
     ? `${currency.format(back)} reimbursed`
     : against
@@ -335,7 +336,7 @@ function monthHeading(month) {
 
 // The Entries screen: filtered list, grouped by month.
 // What each expense got back and what each reimbursement was set against (shown on the cards).
-let reimbursed = { paidBack: new Map(), allocated: new Map() };
+let reimbursed = { paidBack: new Map(), allocated: new Map(), effective: new Map() };
 
 function renderEntriesList() {
   reimbursed = reimbursements(entries);
@@ -1305,9 +1306,15 @@ function openEditor(entry) {
     to: kind === "transfer" ? entry.toReserve : "",
     account: entry.account || DEFAULT_ACCOUNT,
     toAccount: entry.toAccount || "",
-    allocations: entry.allocations || [],
+    allocations: isReimbursement(entry) ? effectiveAllocations(entries, entry.id) : [],
   });
+  // A reimbursement stays a reimbursement (changing it would drop what it pays back): its type
+  // and category are not offered; amount, account, reserve, note and date can be changed.
+  const reimb = isReimbursement(entry);
+  editForm.querySelector(".type-toggle").hidden = reimb;
+  document.getElementById("edit-categories").hidden = reimb;
   editTitle.textContent = { entry: "Edit Entry", transfer: "Edit Transfer", contra: "Edit Contra" }[kind];
+  if (reimb) editTitle.textContent = "Edit Reimbursement";
   editEntryFields.hidden = kind !== "entry";
   editTransferFields.hidden = kind !== "transfer";
   editContraFields.hidden = kind !== "contra";
@@ -1369,8 +1376,9 @@ editForm.addEventListener("submit", async (event) => {
     }
     const type = editForm.elements.type.value;
     body = { type, category: edit.category, subcategory: edit.subcategory, reserve: edit.reserve, account: edit.account };
-    // A reimbursement keeps the expenses it was set against.
-    if (type === "income" && edit.category === REIMBURSEMENT) body.allocations = edit.allocations;
+    // A reimbursement keeps the expenses it was set against, as they apply now (an expense deleted
+    // or lowered since is left out or capped), so saving never fails on old allocations.
+    if (type === "income" && edit.category === REIMBURSEMENT) body.allocations = effectiveAllocations(entries, edit.id);
   }
   Object.assign(body, { description: note, amount, date: editDate.value });
 

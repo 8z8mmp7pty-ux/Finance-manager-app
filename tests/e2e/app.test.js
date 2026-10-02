@@ -1289,3 +1289,51 @@ test("R43/R44/R45: Transport types; a reimbursement is set against tapped expens
   await page.tap("#add-close");
   await screen("");
 });
+
+test("R44/R41/R5: a tap outside posts the chosen allocations; a lowered amount frees the last ones; editing keeps them", { skip }, async () => {
+  await screen("");
+  for (const note of ["Trip A", "Trip B"]) {
+    await openAdd();
+    await page.tap(".type-card[data-flow=expense]");
+    await settle();
+    await page.tap('#pick-grid .category-card:has-text("Health")');
+    await settle();
+    await page.fill("#amount", "400");
+    await page.fill("#note", note);
+    await page.tap("#post-btn");
+    await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  }
+  await openAdd();
+  await page.tap(".type-card[data-flow=reimbursement]");
+  await settle();
+  await page.fill("#amount", "700");
+  await page.tap("#post-btn");
+  await settle();
+  await page.tap('.against-item:has-text("Trip A")');
+  await page.tap('.against-item:has-text("Trip B")'); // only 300 left of the 700
+  assert.match(await page.textContent('.against-item:has-text("Trip B")'), /✓ ₹300\.00/);
+  // Back to the amount, lower it to 500: Trip B (chosen last) gives way to 100.
+  await page.tap("#wizard-back");
+  await settle();
+  await page.fill("#amount", "500");
+  await page.tap("#post-btn");
+  await settle();
+  assert.match(await page.textContent('.against-item:has-text("Trip B")'), /✓ ₹100\.00/);
+  // A tap outside posts it as chosen.
+  await page.touchscreen.tap(200, 20);
+  await page.waitForFunction(() => /₹500\.00 against 2 expenses/.test(document.getElementById("posted").textContent));
+
+  // Edit it: no type or category to change, the expenses it pays back are listed, and saving keeps them.
+  await screen("entries");
+  await page.tap('.entry-card.income:has-text("Reimbursement") >> nth=0');
+  await page.waitForSelector("#edit-dialog[open]");
+  assert.equal(await page.textContent("#edit-title"), "Edit Reimbursement");
+  assert.ok(await page.isHidden("#edit-categories"));
+  assert.match(await page.textContent("#edit-against"), /Health ₹400\.00.*Health ₹100\.00/);
+  await page.fill("#edit-note", "Conference");
+  await page.tap("#edit-save");
+  await page.waitForFunction(() => !document.getElementById("edit-dialog").open);
+  const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "Conference");
+  assert.deepEqual(saved.allocations.map((a) => a.amount), [400, 100]);
+  await screen("");
+});

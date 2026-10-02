@@ -710,4 +710,5 @@ dialog.add-sheet .wizard {
 .against-amount { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .against-item.chosen .against-amount { color: var(--reimb); }
 #against-more { width: 100%; margin-bottom: 12px; }
-#against-post { width: 100%; }
+/* Post stays in sight under a long list of expenses (the sheet scrolls). */
+#against-post { width: 100%; position: sticky; bottom: 0; box-shadow: 0 -8px 12px var(--card); }
