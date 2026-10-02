@@ -1335,5 +1335,14 @@ test("R44/R41/R5: a tap outside posts the chosen allocations; a lowered amount f
   await page.waitForFunction(() => !document.getElementById("edit-dialog").open);
   const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "Conference");
   assert.deepEqual(saved.allocations.map((a) => a.amount), [400, 100]);
+  // Lowering its amount below what it pays back frees the expense chosen last.
+  await page.tap('.entry-card.income:has-text("Conference")');
+  await page.waitForSelector("#edit-dialog[open]");
+  await page.fill("#edit-amount", "450");
+  await page.tap("#edit-save");
+  await page.waitForFunction(() => !document.getElementById("edit-dialog").open);
+  const lowered = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "Conference");
+  assert.equal(lowered.amount, 450);
+  assert.deepEqual(lowered.allocations.map((a) => a.amount), [400, 50]);
   await screen("");
 });

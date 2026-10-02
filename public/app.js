@@ -1378,7 +1378,16 @@ editForm.addEventListener("submit", async (event) => {
     body = { type, category: edit.category, subcategory: edit.subcategory, reserve: edit.reserve, account: edit.account };
     // A reimbursement keeps the expenses it was set against, as they apply now (an expense deleted
     // or lowered since is left out or capped), so saving never fails on old allocations.
-    if (type === "income" && edit.category === REIMBURSEMENT) body.allocations = effectiveAllocations(entries, edit.id);
+    // A lowered amount frees the expenses chosen last, as when adding one.
+    if (type === "income" && edit.category === REIMBURSEMENT) {
+      let room = amount;
+      body.allocations = [];
+      for (const a of effectiveAllocations(entries, edit.id)) {
+        const keep = Math.round(Math.min(a.amount, Math.max(room, 0)) * 100) / 100;
+        if (keep > 0) body.allocations.push({ ...a, amount: keep });
+        room -= keep;
+      }
+    }
   }
   Object.assign(body, { description: note, amount, date: editDate.value });
 

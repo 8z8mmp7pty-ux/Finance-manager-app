@@ -46,7 +46,7 @@ export function chronological(entries) {
     (a, b) =>
       a.date.localeCompare(b.date) ||
       String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) ||
-      Number(a.id) - Number(b.id)
+      (Number(a.id) - Number(b.id) || String(a.id).localeCompare(String(b.id))) // non-numeric ids (books-only contras) still order consistently
   );
 }
 
