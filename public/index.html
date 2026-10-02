@@ -156,6 +156,13 @@
             <span class="type-name">Expense</span>
             <span class="type-sub">Money out</span>
           </button>
+          <button type="button" class="type-card reimbursement wide" data-flow="reimbursement">
+            <span class="type-icon" aria-hidden="true">🧾</span>
+            <span class="type-text">
+              <span class="type-name">Reimbursement</span>
+              <span class="type-sub">Money paid back for your expenses</span>
+            </span>
+          </button>
           <button type="button" class="type-card transfer wide" data-flow="transfer">
             <span class="type-icon" aria-hidden="true">⇄</span>
             <span class="type-text">
@@ -214,6 +221,15 @@
         <button type="submit" id="post-btn" class="post-btn">Post</button>
       </form>
 
+      <!-- Step: a reimbursement is set against the expenses it pays back (tap to choose) -->
+      <div class="step" data-step="against" hidden>
+        <div class="against-summary" id="against-summary"></div>
+        <p class="step-hint">Tap the expenses this pays back. What is left goes to the Reimbursement Reserve.</p>
+        <ul class="against-list" id="against-list"></ul>
+        <button type="button" id="against-more" class="secondary" hidden>Show older expenses</button>
+        <button type="button" id="against-post" class="post-btn">Post Reimbursement</button>
+      </div>
+
     </section>
   </dialog>
 
@@ -238,6 +254,7 @@
           <span class="field-label" id="edit-pay-from-label">Paid from reserve</span>
           <div class="chips" id="edit-pay-from-chips" role="radiogroup" aria-label="Paid from reserve"></div>
         </div>
+        <p id="edit-against" class="step-hint" hidden></p>
       </div>
 
       <div id="edit-transfer-fields">

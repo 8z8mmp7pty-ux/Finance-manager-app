@@ -105,8 +105,8 @@ test("R29: an expense can carry a type inside its category (Ntorq: Petrol); othe
   assert.equal(petrol.data.subcategory, "Petrol");
   const income = await post({ ...base, type: "income", category: "Salary", subcategory: "Petrol", amount: 1 });
   assert.equal(income.data.subcategory, "", "only expenses have a type");
-  const plain = await post({ ...base, type: "expense", category: "Transport", subcategory: "Petrol", amount: 5 });
-  assert.equal(plain.data.subcategory, "", "Transport has no types, so none is kept");
+  const plain = await post({ ...base, type: "expense", category: "Health", subcategory: "Petrol", amount: 5 });
+  assert.equal(plain.data.subcategory, "", "Health has no types, so none is kept");
   const unknown = await post({ ...base, type: "expense", category: "Ntorq", subcategory: "Tyres", amount: 5 });
   assert.equal(unknown.status, 400);
   assert.match(unknown.data.error, /Petrol, Repair \/ Accessory/);
@@ -141,4 +141,43 @@ test("R4: API works without any password", { skip }, async () => {
   const res = await call(handler, "GET");
   assert.equal(res.status, 200);
   assert.ok(res.data.length >= 4);
+});
+
+test("R43: Transport takes Bus, Auto / Rapido or Train", { skip }, async () => {
+  const bus = await post({ ...base, type: "expense", category: "Transport", subcategory: "Auto / Rapido", amount: 80 });
+  assert.equal(bus.status, 201);
+  assert.equal(bus.data.subcategory, "Auto / Rapido");
+  const wrong = await post({ ...base, type: "expense", category: "Transport", subcategory: "Petrol", amount: 5 });
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.data.error, /Bus, Auto \/ Rapido, Train/);
+});
+
+test("R44: a reimbursement is saved with the expenses it pays back, and cannot pay back too much", { skip }, async () => {
+  const taxi = (await post({ ...base, type: "expense", category: "Transport", amount: 300 })).data;
+  const lunch = (await post({ ...base, type: "expense", category: "Health", amount: 500 })).data;
+  const r = await post({ ...base, type: "income", category: "Reimbursement", amount: 1000,
+    allocations: [{ expenseId: taxi.id, amount: 300 }, { expenseId: lunch.id, amount: 200 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.reserve, "Reimbursement", "the rest goes into the Reimbursement reserve");
+  assert.deepEqual(r.data.allocations, [{ expenseId: Number(taxi.id), amount: 300 }, { expenseId: Number(lunch.id), amount: 200 }]);
+
+  // Only 300 of the lunch is left to pay back.
+  const tooMuch = await post({ ...base, type: "income", category: "Reimbursement", amount: 1000, allocations: [{ expenseId: lunch.id, amount: 400 }] });
+  assert.equal(tooMuch.status, 400);
+  assert.match(tooMuch.data.error, /Only 300\.00/);
+  for (const allocations of [
+    [{ expenseId: lunch.id, amount: 600 }, { expenseId: taxi.id, amount: 600 }], // more than the reimbursement (1000)
+    [{ expenseId: 999999, amount: 1 }], // no such expense
+    [{ expenseId: lunch.id, amount: 1 }, { expenseId: lunch.id, amount: 1 }], // twice
+    [{ expenseId: lunch.id, amount: 0 }],
+  ]) {
+    const res = await post({ ...base, type: "income", category: "Reimbursement", amount: 1000, allocations });
+    assert.equal(res.status, 400, JSON.stringify(allocations));
+  }
+  // Editing it again (its own allocations do not count against it); other incomes never keep any.
+  const put = await call(handler, "PUT", `/api/entries?id=${r.data.id}`, { ...base, type: "income", category: "Reimbursement", amount: 800,
+    allocations: [{ expenseId: lunch.id, amount: 500 }] });
+  assert.equal(put.status, 200, JSON.stringify(put.data));
+  const salary = await post({ ...base, type: "income", category: "Salary", amount: 5, allocations: [{ expenseId: lunch.id, amount: 1 }] });
+  assert.deepEqual(salary.data.allocations, []);
 });

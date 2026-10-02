@@ -18,7 +18,16 @@ export const SUBCATEGORIES = {
     { name: "Petrol", icon: "⛽" },
     { name: "Repair / Accessory", icon: "🔧" },
   ],
+  Transport: [
+    { name: "Bus", icon: "🚌" },
+    { name: "Auto / Rapido", icon: "🛺" },
+    { name: "Train", icon: "🚆" },
+  ],
 };
+// A reimbursement is an income in this category (its reserve has the same name). It can be set
+// against specific expenses (`allocations`: [{ expenseId, amount }]): those expenses then cost only
+// what was not paid back, and only the rest of the reimbursement goes into its reserve.
+export const REIMBURSEMENT = "Reimbursement";
 // Spending-report line / filter value for entries of such a category saved without a type.
 export const UNCLASSIFIED = "Unclassified";
 export const DEFAULT_ACCOUNT = "Super Money";
@@ -39,6 +48,72 @@ export function chronological(entries) {
       String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) ||
       Number(a.id) - Number(b.id)
   );
+}
+
+export function isReimbursement(e) {
+  return e.type === "income" && e.category === REIMBURSEMENT;
+}
+
+// How each reimbursement was set against expenses, oldest reimbursement first. An allocation never
+// pays back more than is left of the expense or of the reimbursement; allocations to an expense
+// that no longer exists are ignored (that money stays in the reimbursement).
+// Returns { paidBack: Map(expenseId -> amount), allocated: Map(reimbursementId -> amount) }.
+export function reimbursements(entries) {
+  const expenses = new Map(entries.filter((e) => e.type === "expense").map((e) => [String(e.id), e]));
+  const paidBack = new Map();
+  const allocated = new Map();
+  for (const r of chronological(entries.filter(isReimbursement))) {
+    let left = r.amount;
+    for (const a of r.allocations || []) {
+      const id = String(a.expenseId);
+      const expense = expenses.get(id);
+      if (!expense) continue;
+      const amount = round(Math.min(Number(a.amount) || 0, expense.amount - (paidBack.get(id) || 0), left));
+      if (amount <= EPSILON) continue;
+      paidBack.set(id, round((paidBack.get(id) || 0) + amount));
+      left = round(left - amount);
+    }
+    allocated.set(String(r.id), round(r.amount - left));
+  }
+  return { paidBack, allocated };
+}
+
+// The entries as the books see them: an expense counts only what was not reimbursed, and a
+// reimbursement only what was not set against expenses (fully covered ones drop out). Balances,
+// reserves, reports, budgets and the forecast use these; the Entries list shows the originals.
+export function netOfReimbursements(entries) {
+  const { paidBack, allocated } = reimbursements(entries);
+  if (!paidBack.size) return entries;
+  const out = [];
+  for (const e of entries) {
+    const less = e.type === "expense" ? paidBack.get(String(e.id)) : isReimbursement(e) ? allocated.get(String(e.id)) : 0;
+    if (!less) out.push(e);
+    else if (e.amount - less > EPSILON) out.push({ ...e, amount: round(e.amount - less) });
+  }
+  return out;
+}
+
+// Expenses that still have something left to reimburse, newest first: { entry, left }.
+// `except` leaves one reimbursement out (the one being edited).
+export function reimbursableExpenses(entries, except = null) {
+  const others = except === null ? entries : entries.filter((e) => String(e.id) !== String(except));
+  const { paidBack } = reimbursements(others);
+  return chronological(others.filter((e) => e.type === "expense"))
+    .reverse()
+    .map((entry) => ({ entry, left: round(entry.amount - (paidBack.get(String(entry.id)) || 0)) }))
+    .filter((x) => x.left > EPSILON);
+}
+
+// The reserve the last entered expense was paid from (by when it was saved, not its date), or
+// General Reserve when there is none: new expenses default to it.
+export function lastExpenseReserve(entries) {
+  let last = null;
+  for (const e of entries) {
+    if (e.type !== "expense" || !e.reserve) continue;
+    const key = [String(e.createdAt ?? ""), Number(e.id)];
+    if (!last || key[0] > last.key[0] || (key[0] === last.key[0] && key[1] > last.key[1])) last = { key, reserve: e.reserve };
+  }
+  return last ? last.reserve : GENERAL;
 }
 
 export function monthOf(date) {

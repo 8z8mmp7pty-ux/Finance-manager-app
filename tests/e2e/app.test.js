@@ -72,10 +72,11 @@ async function openReport(kind) {
 const account = async (name) =>
   page.$eval(`.account-card[aria-label^="${name}"] .account-balance`, (e) => e.textContent);
 
-// If the card asks for a type (Ntorq: Petrol / Repair / Accessory), pick one.
-async function pickSubIfAsked(sub = "Petrol") {
+// If the card asks for a type (Ntorq: Petrol / Repair / Accessory; Transport: Bus …), pick one
+// (the first one unless named).
+async function pickSubIfAsked(sub) {
   if (await page.isVisible('.step[data-step="pick"]')) {
-    await page.tap(`#pick-grid .category-card:has-text("${sub}")`);
+    await page.tap(sub ? `#pick-grid .category-card:has-text("${sub}")` : "#pick-grid .category-card >> nth=0");
     await settle();
   }
 }
@@ -87,7 +88,7 @@ async function addEntry(flow, category, amount, { date, reserve: into, sub } = {
   await page.tap(`#pick-grid .category-card:has-text("${category}")`);
   await settle();
   await pickSubIfAsked(sub);
-  if (into) await page.tap(`#pay-from-chips .chip:has-text("${into}")`);
+  if (into || flow === "expense") await page.tap(`#pay-from-chips .chip:has-text("${into || "General Reserve"}")`);
   await page.fill("#amount", String(amount));
   if (date) await page.fill("#date", date);
   await page.tap("#post-btn");
@@ -315,7 +316,7 @@ async function post(flow, category, amount, { reserve: into, account: acct, sub 
   await settle();
   await pickSubIfAsked(sub);
   if (acct) await page.tap(`#account-chips .chip:has-text("${acct}")`);
-  if (into) await page.tap(`#pay-from-chips .chip:has-text("${into}")`);
+  if (into || flow === "expense") await page.tap(`#pay-from-chips .chip:has-text("${into || "General Reserve"}")`);
   await page.fill("#amount", String(amount));
   await page.tap("#post-btn");
 }
@@ -714,11 +715,11 @@ test("R29: tapping Ntorq asks Petrol or Repair / Accessory; the type is saved an
   const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "helmet");
   assert.deepEqual([saved.category, saved.subcategory], ["Ntorq", "Repair / Accessory"]);
 
-  // Other cards go straight to the amount.
+  // Other cards go straight to the amount (Transport asks its own types, R43).
   await openAdd();
   await page.tap(".type-card[data-flow=expense]");
   await settle();
-  await page.tap('#pick-grid .category-card:has-text("Transport")');
+  await page.tap('#pick-grid .category-card:has-text("Health")');
   await settle();
   assert.ok(await page.isVisible("#amount-form"));
   for (let i = 0; i < 2; i++) {
@@ -1195,4 +1196,96 @@ test("R42: a page that fits on the screen does not scroll; a longer one leaves r
   assert.ok(clear, "the last card scrolls above the + button");
   await page.setViewportSize({ width: 390, height: tall });
   await page.evaluate(() => scrollTo(0, 0));
+});
+
+test("R43/R44/R45: Transport types; a reimbursement is set against tapped expenses; expenses remember the last reserve", { skip }, async () => {
+  await screen("");
+  // R43: Transport asks Bus, Auto / Rapido or Train.
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Transport")');
+  await settle();
+  assert.deepEqual(await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent)), ["Bus", "Auto / Rapido", "Train"]);
+  await page.tap('#pick-grid .category-card:has-text("Auto / Rapido")');
+  await settle();
+  // R45: paid from Salary this time …
+  await page.tap('#pay-from-chips .chip:has-text("Salary")');
+  await page.fill("#amount", "180");
+  await page.fill("#note", "Office cab");
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => /Auto \/ Rapido paid from Salary/.test(document.getElementById("posted").textContent));
+  // … so the next expense starts on Salary too.
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  assert.match(await page.textContent('#pay-from-chips .chip[aria-checked="true"]'), /Salary/);
+  await page.fill("#amount", "450");
+  await page.fill("#note", "Clinic visit");
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+
+  const salaryBefore = await reserve("Salary");
+  const balanceBefore = await page.textContent("#balance");
+
+  // R44: Reimbursement ₹1,000 → choose the two expenses → the rest goes to its own reserve.
+  await openAdd();
+  await page.tap(".type-card[data-flow=reimbursement]");
+  await settle();
+  assert.ok(await page.isHidden("#pay-from"), "no reserve to choose: the rest goes to Reimbursement");
+  await page.fill("#amount", "1000");
+  await page.tap("#post-btn"); // Next: choose expenses
+  await settle();
+  assert.ok(await page.isVisible('.step[data-step="against"]'));
+  await page.tap('.against-item:has-text("Office cab")');
+  await page.tap('.against-item:has-text("Clinic visit")');
+  const summary = (await page.textContent("#against-summary")).replace(/\s+/g, " ");
+  assert.match(summary, /Set against 2 expenses−₹630\.00/);
+  assert.match(summary, /To Reimbursement Reserve₹370\.00/);
+  assert.equal(await page.getAttribute('.against-item:has-text("Office cab")', "aria-pressed"), "true");
+  // Tapping one again frees it.
+  await page.tap('.against-item:has-text("Clinic visit")');
+  assert.match(await page.textContent("#against-summary"), /To Reimbursement Reserve₹820\.00/);
+  await page.tap('.against-item:has-text("Clinic visit")');
+  await page.tap("#against-post");
+  await page.waitForFunction(() => /Reimbursement ₹1,000\.00 · ₹630\.00 against 2 expenses · ₹370\.00 to Reimbursement Reserve/.test(document.getElementById("posted").textContent));
+
+  // The expenses were paid back to Salary; the rest is a reserve of its own; the balance grew by 1,000.
+  const num = (t) => Number(t.replace(/[^\d.-]/g, ""));
+  assert.equal(num(await reserve("Salary")), num(salaryBefore) + 630);
+  assert.equal(await reserve("Reimbursement"), "₹370.00");
+  assert.equal(num(await page.textContent("#balance")), num(balanceBefore) + 1000);
+
+  // A later expense can be paid from the Reimbursement reserve.
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Health")');
+  await settle();
+  await page.tap('#pay-from-chips .chip:has-text("Reimbursement")');
+  await page.fill("#amount", "70");
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => !document.getElementById("add-dialog").open);
+  assert.equal(await reserve("Reimbursement"), "₹300.00");
+
+  // The entries keep their amounts and say what was paid back.
+  await screen("entries");
+  assert.match(await page.textContent('.entry-card:has-text("Office cab")'), /₹180\.00 reimbursed/);
+  assert.match(await page.textContent('.entry-card.income:has-text("Reimbursement")'), /₹630\.00 against 2 expenses.*\+₹1,000\.00/s);
+  // Fully paid back expenses are no longer offered for the next reimbursement.
+  await openAdd();
+  await page.tap(".type-card[data-flow=reimbursement]");
+  await settle();
+  await page.fill("#amount", "10");
+  await page.tap("#post-btn");
+  await settle();
+  assert.equal(await page.locator('.against-item:has-text("Office cab")').count(), 0);
+  // More than the reimbursement cannot be set against expenses.
+  await page.tap('.against-item >> nth=0');
+  await page.tap('.against-item >> nth=1');
+  assert.match(await page.textContent("#add-status"), /already set against expenses/);
+  await page.tap("#add-close");
+  await screen("");
 });

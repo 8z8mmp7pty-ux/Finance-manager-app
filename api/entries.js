@@ -1,6 +1,6 @@
 import { query, DatabaseConfigError, GENERAL_RESERVE, DEFAULT_ACCOUNT, ACCOUNTS } from "../lib/db.js";
 import { send, readBody, text } from "../lib/http.js";
-import { SUBCATEGORIES } from "../public/ledger.js";
+import { SUBCATEGORIES, REIMBURSEMENT, reimbursements } from "../public/ledger.js";
 
 function validate(body) {
   const type = body.type;
@@ -59,11 +59,49 @@ function validate(body) {
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
     return "Date must be in YYYY-MM-DD format";
   }
-  return { type, category, subcategory, description, reserve, toReserve, account, toAccount, amount, date };
+  // Only a reimbursement is set against expenses: each expense once, a positive amount each, and
+  // together no more than the reimbursement (checked against the expenses in checkAllocations).
+  let allocations = [];
+  if (type === "income" && category === REIMBURSEMENT) {
+    const list = body.allocations ?? [];
+    if (!Array.isArray(list) || list.length > 500) return "Allocations must be a list";
+    const seen = new Set();
+    for (const a of list) {
+      const expenseId = String(a?.expenseId ?? "");
+      const share = Math.round(Number(a?.amount) * 100) / 100;
+      if (!/^\d+$/.test(expenseId)) return "Each allocation needs an expense";
+      if (!Number.isFinite(share) || share <= 0) return "Each allocation needs a positive amount";
+      if (seen.has(expenseId)) return "An expense can only be chosen once";
+      seen.add(expenseId);
+      allocations.push({ expenseId: Number(expenseId), amount: share });
+    }
+    const total = Math.round(allocations.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    if (total > amount) return "Allocated more than the reimbursement";
+  }
+  return { type, category, subcategory, description, reserve, toReserve, account, toAccount, amount, date, allocations };
+}
+
+// Every allocated expense must exist and still have that much left to reimburse (other
+// reimbursements count; `selfId` is the reimbursement being edited).
+async function checkAllocations(entry, selfId = null) {
+  if (!entry.allocations.length) return null;
+  const { rows } = await query(
+    "SELECT id, type, category, amount, allocations, created_at AS \"createdAt\", to_char(entry_date, 'YYYY-MM-DD') AS date FROM entries WHERE type = 'expense' OR (type = 'income' AND category = $1)",
+    [REIMBURSEMENT]
+  );
+  const others = rows.filter((r) => selfId === null || String(r.id) !== String(selfId));
+  const { paidBack } = reimbursements(others);
+  for (const a of entry.allocations) {
+    const expense = others.find((r) => r.type === "expense" && String(r.id) === String(a.expenseId));
+    if (!expense) return "An allocated expense no longer exists";
+    const left = Math.round((expense.amount - (paidBack.get(String(expense.id)) || 0)) * 100) / 100;
+    if (a.amount > left + 0.001) return `Only ${left.toFixed(2)} of that expense is left to reimburse`;
+  }
+  return null;
 }
 
 const SELECT_COLUMNS =
-  "id, type, category, subcategory, description, reserve, to_reserve AS \"toReserve\", account, to_account AS \"toAccount\", amount, created_at AS \"createdAt\", to_char(entry_date, 'YYYY-MM-DD') AS date";
+  "id, type, category, subcategory, allocations, description, reserve, to_reserve AS \"toReserve\", account, to_account AS \"toAccount\", amount, created_at AS \"createdAt\", to_char(entry_date, 'YYYY-MM-DD') AS date";
 
 export default async function handler(req, res) {
   try {
@@ -83,14 +121,16 @@ export default async function handler(req, res) {
       }
       const entry = validate(body || {});
       if (typeof entry === "string") return send(res, 400, { error: entry });
+      const bad = await checkAllocations(entry);
+      if (bad) return send(res, 400, { error: bad });
 
       const { rows } = await query(
         `INSERT INTO entries
-           (type, category, description, reserve, to_reserve, account, to_account, amount, entry_date, subcategory)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           (type, category, description, reserve, to_reserve, account, to_account, amount, entry_date, subcategory, allocations)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING ${SELECT_COLUMNS}`,
         [entry.type, entry.category, entry.description, entry.reserve, entry.toReserve,
-         entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory]
+         entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory, JSON.stringify(entry.allocations)]
       );
       return send(res, 201, rows[0]);
     }
@@ -107,15 +147,17 @@ export default async function handler(req, res) {
       }
       const entry = validate(body || {});
       if (typeof entry === "string") return send(res, 400, { error: entry });
+      const bad = await checkAllocations(entry, id);
+      if (bad) return send(res, 400, { error: bad });
 
       const { rows } = await query(
         `UPDATE entries
          SET type = $1, category = $2, description = $3, reserve = $4, to_reserve = $5,
-             account = $6, to_account = $7, amount = $8, entry_date = $9, subcategory = $10
-         WHERE id = $11
+             account = $6, to_account = $7, amount = $8, entry_date = $9, subcategory = $10, allocations = $11
+         WHERE id = $12
          RETURNING ${SELECT_COLUMNS}`,
         [entry.type, entry.category, entry.description, entry.reserve, entry.toReserve,
-         entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory, id]
+         entry.account, entry.toAccount, entry.amount, entry.date, entry.subcategory, JSON.stringify(entry.allocations), id]
       );
       return rows.length ? send(res, 200, rows[0]) : send(res, 404, { error: "Entry not found" });
     }

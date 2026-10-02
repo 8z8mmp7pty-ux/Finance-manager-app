@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { GENERAL, allocate, reserveBalances, reserveMonths, reserveReport, reserveAccountGrid, accountBalances, transferAllPlan,
   addMonths, periodRange, filterEntries, totalsOf, spendingByCategory, reserveReceipts, receiptReport,
   budgetStatus, planOccurrences, cashflowForecast, UNCATEGORISED, autoFoodPlans, chronological,
-  autoNtorqPlans, autoPlans, availableToSpend, spendable, availableExplanation, forecastEnd, planDates } from "../public/ledger.js";
+  autoNtorqPlans, autoPlans, availableToSpend, spendable, availableExplanation, forecastEnd, planDates,
+  SUBCATEGORIES, REIMBURSEMENT, reimbursements, netOfReimbursements, reimbursableExpenses, lastExpenseReserve } from "../public/ledger.js";
 
 let nextId = 1;
 const income = (date, category, amount, reserve = category) => ({ id: nextId++, type: "income", category, description: "", reserve, toReserve: "", amount, date });
@@ -372,16 +373,16 @@ test("R29/R30: spending by category can show one line per Ntorq type; the filter
     { ...expense("2026-09-05", "Ntorq", 250), subcategory: "Petrol" },
     { ...expense("2026-09-06", "Ntorq", 1200), subcategory: "Repair / Accessory" },
     expense("2026-09-07", "Ntorq", 100), // saved before types existed
-    expense("2026-09-08", "Transport", 90),
+    expense("2026-09-08", "Health", 90), // a category without types stays one line
   ];
   const one = spendingByCategory(entries, { period: "all" }, "2026-09-26");
-  assert.deepEqual(one.rows.map((r) => [r.category, r.amount]), [["Ntorq", 1850], ["Transport", 90]]);
+  assert.deepEqual(one.rows.map((r) => [r.category, r.amount]), [["Ntorq", 1850], ["Health", 90]]);
   const split = spendingByCategory(entries, { period: "all" }, "2026-09-26", { bySubcategory: true });
   assert.deepEqual(split.rows.map((r) => [r.category, r.parent, r.subcategory, r.amount]), [
     ["Ntorq · Repair / Accessory", "Ntorq", "Repair / Accessory", 1200],
     ["Ntorq · Petrol", "Ntorq", "Petrol", 550],
     ["Ntorq · Unclassified", "Ntorq", "Unclassified", 100],
-    ["Transport", "Transport", "", 90],
+    ["Health", "Health", "", 90],
   ]);
   assert.equal(split.total, one.total);
   assert.equal(filterEntries(entries, { category: "Ntorq", subcategory: "Petrol" }, "2026-09-26").length, 2);
@@ -759,4 +760,76 @@ test("R40: a repeating plan has one date per month in the 3-month forecast, the 
   assert.deepEqual(planDates(later, today), []);
   const f = cashflowForecast([], [], [salary, trip, later], today);
   assert.equal(f.rows.reduce((s, r) => s + r.income, 0), 50000 * planDates(salary, today).length);
+});
+
+// ---------- Transport types, reimbursements, last reserve (R43–R45) ----------
+
+const reimb = (date, amount, allocations = [], id) => ({
+  id: id ?? 900 + Math.floor(amount), type: "income", category: REIMBURSEMENT, reserve: REIMBURSEMENT, account: "Super Money",
+  description: "", amount, date, allocations,
+});
+
+test("R43: Transport asks Bus, Auto / Rapido or Train, like Ntorq", () => {
+  assert.deepEqual(SUBCATEGORIES.Transport.map((s) => s.name), ["Bus", "Auto / Rapido", "Train"]);
+  const entries = [
+    { ...expense("2026-09-02", "Transport", 40), subcategory: "Bus" },
+    { ...expense("2026-09-03", "Transport", 120), subcategory: "Auto / Rapido" },
+    expense("2026-09-04", "Transport", 30), // older, no type
+  ];
+  const { rows } = spendingByCategory(entries, { period: "all" }, "2026-09-26", { bySubcategory: true });
+  assert.deepEqual(rows.map((r) => [r.category, r.amount]).sort(), [
+    ["Transport · Auto / Rapido", 120], ["Transport · Bus", 40], ["Transport · Unclassified", 30],
+  ].sort());
+});
+
+test("R44: a reimbursement set against expenses reduces them; the rest goes to the Reimbursement reserve", () => {
+  const taxi = { ...expense("2026-09-10", "Transport", 300), id: 1, reserve: "Salary" };
+  const lunch = { ...expense("2026-09-11", "Optional Food", 500), id: 2 };
+  const salary = { ...income("2026-09-01", "Salary", 10000), id: 3 };
+  const r = reimb("2026-09-20", 1000, [{ expenseId: 1, amount: 300 }, { expenseId: 2, amount: 200 }], 4);
+  const entries = [salary, taxi, lunch, r];
+
+  const { paidBack, allocated } = reimbursements(entries);
+  assert.deepEqual([paidBack.get("1"), paidBack.get("2"), allocated.get("4")], [300, 200, 500]);
+  const books = netOfReimbursements(entries);
+  assert.equal(books.find((e) => e.id === 1), undefined, "fully reimbursed: it no longer costs anything");
+  assert.equal(books.find((e) => e.id === 2).amount, 300);
+  assert.equal(books.find((e) => e.id === 4).amount, 500, "the rest of the reimbursement");
+  // The balance is the same either way; the reserves get their money back.
+  assert.equal(totalsOf(books).net, totalsOf(entries).net);
+  const reserves = Object.fromEntries(reserveBalances(books, "2026-09-26").map((x) => [x.name, x.balance]));
+  assert.equal(reserves.Salary, 10000, "the taxi paid from Salary was paid back to it");
+  assert.equal(reserves[REIMBURSEMENT], 500);
+  assert.equal(reserves[GENERAL], -300);
+  // The spending report counts what the expenses really cost.
+  const { rows } = spendingByCategory(books, { period: "all" }, "2026-09-26");
+  assert.deepEqual(rows.map((x) => [x.category, x.amount]), [["Optional Food", 300]]);
+});
+
+test("R44: allocations never pay back more than the expense or the reimbursement; deleted expenses are ignored", () => {
+  const a = { ...expense("2026-09-10", "Health", 400), id: 1 };
+  const first = reimb("2026-09-12", 300, [{ expenseId: 1, amount: 300 }], 2);
+  const second = reimb("2026-09-13", 500, [{ expenseId: 1, amount: 500 }, { expenseId: 99, amount: 100 }], 3);
+  const { paidBack, allocated } = reimbursements([a, first, second]);
+  assert.equal(paidBack.get("1"), 400, "only what was left of the expense");
+  assert.deepEqual([allocated.get("2"), allocated.get("3")], [300, 100]);
+  const over = reimb("2026-09-14", 50, [{ expenseId: 1, amount: 400 }], 4);
+  assert.equal(reimbursements([a, over]).allocated.get("4"), 50, "not more than the reimbursement");
+  // What is left to reimburse, newest first; one reimbursement can be left out (when editing it).
+  const b = { ...expense("2026-09-15", "Transport", 60), id: 5 };
+  assert.deepEqual(reimbursableExpenses([a, b, first]).map((x) => [x.entry.id, x.left]), [[5, 60], [1, 100]]);
+  assert.deepEqual(reimbursableExpenses([a, b, first], 2).map((x) => [x.entry.id, x.left]), [[5, 60], [1, 400]]);
+  // No reimbursements: the books are the entries themselves.
+  const plain = [a, b];
+  assert.equal(netOfReimbursements(plain), plain);
+});
+
+test("R45: a new expense defaults to the reserve of the last expense entered", () => {
+  assert.equal(lastExpenseReserve([]), GENERAL);
+  const entries = [
+    { ...expense("2026-09-20", "Health", 10), id: 1, reserve: "Salary", createdAt: "2026-09-20T10:00:00Z" },
+    { ...expense("2026-09-01", "Health", 10), id: 2, reserve: REIMBURSEMENT, createdAt: "2026-09-25T10:00:00Z" }, // entered last, older date
+    { ...income("2026-09-26", "Salary", 10), id: 3, reserve: "Salary", createdAt: "2026-09-26T10:00:00Z" }, // not an expense
+  ];
+  assert.equal(lastExpenseReserve(entries), REIMBURSEMENT);
 });

@@ -25,6 +25,12 @@ import {
   autoPlans as autoPlanLines,
   SUBCATEGORIES,
   UNCLASSIFIED,
+  REIMBURSEMENT,
+  isReimbursement,
+  reimbursements,
+  netOfReimbursements,
+  reimbursableExpenses,
+  lastExpenseReserve,
 } from "./ledger.js";
 
 const CATEGORIES = {
@@ -54,12 +60,13 @@ const CATEGORIES = {
   ],
 };
 
-const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra" };
+const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", contra: "Contra", reimbursement: "Reimbursement" };
 
 // Icons for categories that were replaced, so entries saved with them keep their look.
 const RETIRED_ICONS = { Rent: "🏠", "EMI & Loans": "💳", "Food & Dining": "🍽️", Groceries: "🛒", Shopping: "🛍️", Travel: "✈️" };
 
 function categoryIcon(type, name) {
+  if (type === "income" && name === REIMBURSEMENT) return "🧾";
   const found = (CATEGORIES[type] || []).find((c) => c.name === name);
   if (found) return found.icon;
   if (type === "expense" && RETIRED_ICONS[name]) return RETIRED_ICONS[name];
@@ -79,6 +86,7 @@ function subcategoryIcon(category, sub) {
 
 function reserveIcon(name) {
   if (name === GENERAL) return "🛡️";
+  if (name === REIMBURSEMENT) return "🧾";
   const found = CATEGORIES.income.find((c) => c.name === name);
   return found ? found.icon : "🪣";
 }
@@ -170,8 +178,15 @@ function computeReserves(skipId = null) {
   );
 }
 
+// The entries as the books see them (R44): reimbursed expenses cost only what was not paid back,
+// and a reimbursement only adds what was not set against expenses. All balances, reports, budgets
+// and the forecast use these; the Entries list and the editor show the entries as entered.
+function books() {
+  return netOfReimbursements(entries);
+}
+
 function without(skipId) {
-  return skipId === null ? entries : entries.filter((e) => e.id !== skipId);
+  return netOfReimbursements(skipId === null ? entries : entries.filter((e) => e.id !== skipId));
 }
 
 function computeAccounts(skipId = null) {
@@ -274,16 +289,23 @@ function describe(entry) {
     return { title: `${account} → ${entry.toAccount}`, icon: "🔁", meta: [entry.description, reserveNote] };
   }
   const note = entry.category ? entry.description : "";
+  const back = entry.type === "expense" ? reimbursed.paidBack.get(String(entry.id)) : 0;
+  const against = isReimbursement(entry) ? (entry.allocations || []).length : 0;
+  const reimbNote = back
+    ? `${currency.format(back)} reimbursed`
+    : against
+    ? `${currency.format(reimbursed.allocated.get(String(entry.id)) || 0)} against ${against} expense${against === 1 ? "" : "s"}`
+    : "";
   const via =
     entry.type === "expense" && entry.reserve && entry.reserve !== GENERAL
       ? "from " + entry.reserve
-      : entry.type === "income" && entry.reserve && entry.reserve !== entry.category
+      : entry.type === "income" && entry.reserve && entry.reserve !== entry.category && !isReimbursement(entry)
       ? "into " + entry.reserve
       : "";
   return {
     title: categoryTitle(entry),
     icon: categoryIcon(entry.type, entry.category), // Ntorq keeps its scooter logo (R7); the type is in the title
-    meta: [note, via, accountNote],
+    meta: [note, reimbNote, via, accountNote],
   };
 }
 
@@ -312,7 +334,11 @@ function monthHeading(month) {
 }
 
 // The Entries screen: filtered list, grouped by month.
+// What each expense got back and what each reimbursement was set against (shown on the cards).
+let reimbursed = { paidBack: new Map(), allocated: new Map() };
+
 function renderEntriesList() {
+  reimbursed = reimbursements(entries);
   list.innerHTML = "";
   const shown = filterEntries(entries, filters, today());
   let month = null;
@@ -337,7 +363,7 @@ function renderEntriesList() {
 function render() {
   renderEntriesList();
 
-  const balance = totalsOf(entries).net;
+  const balance = totalsOf(books()).net;
   balanceEl.textContent = currency.format(balance);
   balanceEl.className = "balance " + (balance < 0 ? "expense" : "");
   renderAccounts();
@@ -513,6 +539,7 @@ document.getElementById("f-clear-quick").addEventListener("click", () => setFilt
 
 const FLOWS = {
   income: ["type", "category", "amount"],
+  reimbursement: ["type", "amount", "against"],
   expense: ["type", "category", "amount"],
   transfer: ["type", "from", "to", "amount"],
   contra: ["type", "fromAccount", "toAccount", "amount"],
@@ -551,6 +578,8 @@ const EMPTY_DRAFT = {
   flow: null, index: 0, category: null, subcategory: "", reserve: GENERAL, from: null, to: null,
   account: DEFAULT_ACCOUNT, fromAccount: null, toAccount: null,
   transferAll: false, // "Transfer all": move the reserve's money out of every account that holds it
+  allocations: null, // reimbursement: Map(expense id -> amount paid back), in the order tapped
+  againstShown: 30, // reimbursement: how many expenses the list shows before "Show older"
 };
 const draft = { ...EMPTY_DRAFT };
 let postedTimer;
@@ -559,7 +588,7 @@ let addOpenedOn = null; // the day the Add Entry popup was last opened fresh
 function goToStage(stage, direction = "forward") {
   const stages = draft.flow ? flowStages() : ["type", "category", "amount"];
   draft.index = stages.indexOf(stage);
-  const panel = stage === "type" ? "type" : stage === "amount" ? "amount" : "pick";
+  const panel = stage === "type" || stage === "amount" || stage === "against" ? stage : "pick";
   showStatus(""); // messages belong to the step they were shown on
   if (stage !== "amount" && draft.transferAll) {
     // Leaving the amount step cancels "Transfer all" (the reserves may change).
@@ -643,6 +672,8 @@ function goToStage(stage, direction = "forward") {
         }
       }
     );
+  } else if (stage === "against") {
+    renderAgainst();
   } else {
     showAmountStage();
   }
@@ -664,7 +695,7 @@ function renderPickCards(items, onPick) {
 
 // "Transfer all": how much to move out of each account so the reserve ends at exactly zero.
 function reserveSplit(reserve) {
-  return transferAllPlan(entries, reserve);
+  return transferAllPlan(books(), reserve);
 }
 
 function planTotal(parts) {
@@ -686,7 +717,11 @@ function showAmountStage() {
 
   wizardTitle.textContent = flow === "transfer" || flow === "contra" ? TYPE_LABEL[flow] : "Amount";
   chosenType.textContent = TYPE_LABEL[flow];
-  if (flow === "transfer") {
+  if (flow === "reimbursement") {
+    chosenIcon.textContent = "🧾";
+    chosenCategory.textContent = "Paid back to you";
+    postBtn.textContent = "Next: choose expenses →";
+  } else if (flow === "transfer") {
     chosenIcon.textContent = "⇄";
     chosenCategory.textContent = `${draft.from} → ${draft.to}`;
     postBtn.textContent = "Transfer";
@@ -701,7 +736,7 @@ function showAmountStage() {
   }
 
   accountGroup.hidden = flow === "contra";
-  payFrom.hidden = flow === "transfer";
+  payFrom.hidden = flow === "transfer" || flow === "reimbursement"; // a reimbursement's rest goes to its own reserve
   transferAvailable.hidden = flow !== "transfer" && flow !== "contra";
   moveAllBtn.textContent = flow === "contra" ? "Move all" : "Transfer all";
   renderAmountChoices();
@@ -712,7 +747,7 @@ function renderAmountChoices() {
   const flow = draft.flow;
   if (flow !== "contra") {
     document.getElementById("account-label").textContent =
-      flow === "income" ? "Received in account" : flow === "expense" ? "Paid from account" : "In account";
+      flow === "income" || flow === "reimbursement" ? "Received in account" : flow === "expense" ? "Paid from account" : "In account";
     renderAccountChips(accountChips, {
       selected: draft.transferAll ? null : draft.account,
       onSelect: (name) => {
@@ -727,7 +762,7 @@ function renderAmountChoices() {
     });
   }
 
-  if (flow !== "transfer") {
+  if (flow !== "transfer" && flow !== "reimbursement") {
     const label = { income: "Goes into reserve", expense: "Paid from reserve", contra: "Whose money (reserve)" }[flow];
     document.getElementById("pay-from-label").textContent = label;
     renderReserveChips(payFromChips, {
@@ -755,8 +790,12 @@ function startFlow(flow) {
   // Starting from the type cards always begins a fresh choice (no leftover Ntorq type step).
   Object.assign(draft, { category: null, subcategory: "", from: null, to: null, fromAccount: null, toAccount: null });
   draft.flow = flow;
-  draft.reserve = GENERAL;
+  // An expense is paid from the reserve the last expense was paid from (R45).
+  draft.reserve = flow === "expense" ? lastExpenseReserve(entries) : GENERAL;
   draft.account = DEFAULT_ACCOUNT;
+  draft.allocations = new Map();
+  draft.againstShown = 30;
+  if (flow === "reimbursement") Object.assign(draft, { category: REIMBURSEMENT, reserve: REIMBURSEMENT });
   postedMsg.hidden = true;
   goToStage(flowStages()[1]);
 }
@@ -789,7 +828,7 @@ function closeAdd() {
 
 // An entry is ready to post once its amount is typed on the last step.
 function entryReady() {
-  return !amountForm.hidden && parseAmount(amountInput.value) > 0;
+  return (!amountForm.hidden || !againstPanel.hidden) && parseAmount(amountInput.value) > 0;
 }
 
 addFab.addEventListener("click", openAdd);
@@ -883,8 +922,94 @@ amountInput.addEventListener("input", () => {
 
 amountForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  postDraft();
+  // A reimbursement goes on to choose the expenses it pays back; everything else posts.
+  if (draft.flow === "reimbursement") goToStage("against");
+  else postDraft();
 });
+
+// ---------- Reimbursement: set it against expenses (R44) ----------
+
+const againstPanel = document.querySelector('.step[data-step="against"]');
+const againstSummary = document.getElementById("against-summary");
+const againstList = document.getElementById("against-list");
+const againstMore = document.getElementById("against-more");
+const againstPost = document.getElementById("against-post");
+
+function allocatedTotal() {
+  return Math.round([...(draft.allocations || new Map()).values()].reduce((s, a) => s + a, 0) * 100) / 100;
+}
+
+// The amount may have been lowered after expenses were chosen: the last ones chosen give way.
+function trimAllocations(total) {
+  draft.allocations ||= new Map();
+  let room = total;
+  for (const [id, amount] of draft.allocations) {
+    const keep = Math.round(Math.min(amount, Math.max(room, 0)) * 100) / 100;
+    if (keep > 0) draft.allocations.set(id, keep);
+    else draft.allocations.delete(id);
+    room -= keep;
+  }
+}
+
+function renderAgainst() {
+  const total = parseAmount(amountInput.value) || 0;
+  trimAllocations(total);
+  wizardTitle.textContent = "Pays back";
+  const allocated = allocatedTotal();
+  const count = draft.allocations.size;
+  againstSummary.innerHTML = "";
+  for (const [label, value, cls] of [
+    ["Reimbursement", currency.format(total), ""],
+    [`Set against ${count} expense${count === 1 ? "" : "s"}`, "−" + currency.format(allocated), ""],
+    ["To Reimbursement Reserve", currency.format(Math.round((total - allocated) * 100) / 100), " calc-total"],
+  ]) {
+    const row = el("div", "calc-row" + cls);
+    row.append(el("span", "calc-label", label), el("span", "calc-value", value));
+    againstSummary.append(row);
+  }
+
+  const candidates = reimbursableExpenses(entries);
+  const shown = candidates.filter((c, i) => i < draft.againstShown || draft.allocations.has(String(c.entry.id)));
+  againstList.innerHTML = "";
+  if (!candidates.length) againstList.append(el("li", "empty", "No expenses are waiting to be reimbursed."));
+  for (const { entry, left } of shown) {
+    const id = String(entry.id);
+    const chosen = draft.allocations.get(id);
+    const li = el("li");
+    const btn = el("button", "against-item" + (chosen ? " chosen" : ""));
+    btn.type = "button";
+    btn.dataset.expenseId = id;
+    btn.setAttribute("aria-pressed", String(Boolean(chosen)));
+    const icon = el("span", "row-icon", entry.subcategory ? subcategoryIcon(entry.category, entry.subcategory) : categoryIcon("expense", entry.category));
+    const info = el("div", "entry-info");
+    const meta = [formatDate(entry.date), entry.description, left < entry.amount ? `${currency.format(left)} of ${currency.format(entry.amount)} left` : ""];
+    info.append(el("p", "entry-desc", categoryTitle(entry)), el("p", "entry-date", meta.filter(Boolean).join(" · ")));
+    const amount = el("span", "against-amount", chosen ? "✓ " + currency.format(chosen) : currency.format(left));
+    btn.append(icon, info, amount);
+    btn.addEventListener("click", () => {
+      showStatus("");
+      if (draft.allocations.has(id)) draft.allocations.delete(id);
+      else {
+        const room = Math.round((total - allocatedTotal()) * 100) / 100;
+        if (room <= 0) {
+          showStatus("All of the reimbursement is already set against expenses. Tap one to free it.");
+          return;
+        }
+        draft.allocations.set(id, Math.min(left, room));
+      }
+      renderAgainst();
+    });
+    li.append(btn);
+    againstList.append(li);
+  }
+  againstMore.hidden = candidates.length <= draft.againstShown;
+}
+
+againstMore.addEventListener("click", () => {
+  draft.againstShown += 30;
+  renderAgainst();
+});
+againstPost.addEventListener("click", () => postDraft());
 
 // Posts the entry being added. True when it was saved (the popup then closes).
 async function postDraft() {
@@ -897,7 +1022,16 @@ async function postDraft() {
   }
 
   let body;
-  if (draft.flow === "transfer" || draft.flow === "contra") {
+  if (draft.flow === "reimbursement") {
+    trimAllocations(amount);
+    body = {
+      type: "income",
+      category: REIMBURSEMENT,
+      reserve: REIMBURSEMENT,
+      account: draft.account,
+      allocations: [...draft.allocations].map(([expenseId, share]) => ({ expenseId, amount: share })),
+    };
+  } else if (draft.flow === "transfer" || draft.flow === "contra") {
     const isTransfer = draft.flow === "transfer";
     if (isTransfer ? !draft.from || !draft.to : !draft.fromAccount || !draft.toAccount) return false;
     const available = draftAvailable();
@@ -920,7 +1054,7 @@ async function postDraft() {
   }
   Object.assign(body, { description: noteInput.value.trim(), amount, date: dateInput.value || today() });
 
-  postBtn.disabled = true;
+  postBtn.disabled = againstPost.disabled = true;
   try {
     const created = await api("POST", "", body);
     entries.push(created);
@@ -928,6 +1062,17 @@ async function postDraft() {
     showStatus("");
     render();
 
+    if (isReimbursement(created)) {
+      const set = (created.allocations || []).reduce((s, a) => s + a.amount, 0);
+      const n = (created.allocations || []).length;
+      const rest = Math.round((created.amount - set) * 100) / 100;
+      showPosted(
+        `✓ Reimbursement ${currency.format(created.amount)}` +
+          (n ? ` · ${currency.format(set)} against ${n} expense${n === 1 ? "" : "s"}` : "") +
+          (rest > 0 ? ` · ${currency.format(rest)} to Reimbursement Reserve` : "")
+      );
+      return true;
+    }
     showPosted({
       transfer: () => `✓ Moved ${currency.format(created.amount)} to ${created.toReserve}`,
       contra: () => `✓ Moved ${currency.format(created.amount)} from ${created.account} to ${created.toAccount}`,
@@ -939,7 +1084,7 @@ async function postDraft() {
     showStatus(err.message);
     return false;
   } finally {
-    postBtn.disabled = false;
+    postBtn.disabled = againstPost.disabled = false;
   }
 }
 
@@ -1013,9 +1158,24 @@ const editDate = document.getElementById("edit-date");
 const editSave = document.getElementById("edit-save");
 const editDelete = document.getElementById("edit-delete");
 // kind: "entry" (income/expense), "transfer" or "contra"
-const edit = { id: null, kind: "entry", category: "", subcategory: "", reserve: GENERAL, from: "", to: "", account: DEFAULT_ACCOUNT, toAccount: "" };
+const edit = { id: null, kind: "entry", category: "", subcategory: "", reserve: GENERAL, from: "", to: "", account: DEFAULT_ACCOUNT, toAccount: "", allocations: [] };
+
+// Which expenses a reimbursement pays back (read-only in the editor).
+function renderEditAgainst() {
+  const note = document.getElementById("edit-against");
+  const isReimb = edit.kind === "entry" && editForm.elements.type.value === "income" && edit.category === REIMBURSEMENT;
+  const parts = (isReimb ? edit.allocations : []).map((a) => {
+    const e = entries.find((x) => String(x.id) === String(a.expenseId));
+    return e ? `${categoryTitle(e)} ${currency.format(a.amount)} (${formatDate(e.date)})` : null;
+  });
+  note.hidden = !parts.filter(Boolean).length;
+  note.textContent = note.hidden
+    ? ""
+    : `Pays back: ${parts.filter(Boolean).join(", ")}. To change these, delete this reimbursement and enter it again.`;
+}
 
 function renderEditFields() {
+  renderEditAgainst();
   const skipId = edit.id;
   const rerender = (changes) => () => {
     Object.assign(edit, changes());
@@ -1145,6 +1305,7 @@ function openEditor(entry) {
     to: kind === "transfer" ? entry.toReserve : "",
     account: entry.account || DEFAULT_ACCOUNT,
     toAccount: entry.toAccount || "",
+    allocations: entry.allocations || [],
   });
   editTitle.textContent = { entry: "Edit Entry", transfer: "Edit Transfer", contra: "Edit Contra" }[kind];
   editEntryFields.hidden = kind !== "entry";
@@ -1208,6 +1369,8 @@ editForm.addEventListener("submit", async (event) => {
     }
     const type = editForm.elements.type.value;
     body = { type, category: edit.category, subcategory: edit.subcategory, reserve: edit.reserve, account: edit.account };
+    // A reimbursement keeps the expenses it was set against.
+    if (type === "income" && edit.category === REIMBURSEMENT) body.allocations = edit.allocations;
   }
   Object.assign(body, { description: note, amount, date: editDate.value });
 
@@ -1328,7 +1491,7 @@ function renderReservePick(title, hint, next) {
   reportBody.append(el("p", "step-hint", hint));
   const grid = el("div", "category-grid");
   for (const r of computeReserves()) {
-    if (!reserveMonths(entries, r.name).length) continue;
+    if (!reserveMonths(books(), r.name).length) continue;
     const btn = el("button", "category-card report-pick");
     btn.type = "button";
     btn.append(
@@ -1376,10 +1539,10 @@ function renderSpending() {
   }
   reportBody.append(chips);
 
-  // Categories with types inside them (Ntorq): one line, or one line per type.
+  // Categories with types inside them (Ntorq, Transport): one line, or one line per type.
   const split = el("div", "quick-filters split-switch");
-  split.append(el("span", "switch-label", "Ntorq as"));
-  for (const [value, label] of [[false, "One line"], [true, "Petrol / Repair"]]) {
+  split.append(el("span", "switch-label", "Ntorq & Transport as"));
+  for (const [value, label] of [[false, "One line"], [true, "One line per type"]]) {
     const b = el("button", "qf" + (report.bySubcategory === value ? " active" : ""), label);
     b.type = "button";
     b.dataset.split = String(value);
@@ -1397,7 +1560,7 @@ function renderSpending() {
     }
   }
 
-  const { total, rows } = spendingByCategory(entries, { period: report.period }, today(), { bySubcategory: report.bySubcategory });
+  const { total, rows } = spendingByCategory(books(), { period: report.period }, today(), { bySubcategory: report.bySubcategory });
   const budgetOf = new Map(budgets.map((b) => [b.category, b.amount]));
   const tile = el("div", "report-tile spend-total");
   tile.append(el("span", "label", "Total spent"), el("span", "tile-value expense", currency.format(total)));
@@ -1430,7 +1593,7 @@ function renderSpending() {
 }
 
 function renderReceipts() {
-  const receipts = reserveReceipts(entries, report.reserve);
+  const receipts = reserveReceipts(books(), report.reserve);
   if (!receipts.length) return showReportStage("util-reserve");
   reportTitle.textContent = report.reserve;
   const received = receipts.reduce((s, r) => s + r.amount, 0);
@@ -1458,7 +1621,7 @@ function renderReceipts() {
 }
 
 function renderReceipt() {
-  const r = receiptReport(entries, report.reserve, report.lotId);
+  const r = receiptReport(books(), report.reserve, report.lotId);
   if (!r) return showReportStage("receipts");
   reportTitle.textContent = "Receipt";
   renderUsage(r, `Where did ${r.lot.label} of ${formatDate(r.lot.date)} go?`);
@@ -1468,7 +1631,7 @@ function renderMonthPick() {
   reportTitle.textContent = report.reserve;
   reportBody.append(el("p", "step-hint", "Which month's money?"));
   const grid = el("div", "category-grid");
-  for (const m of reserveMonths(entries, report.reserve)) {
+  for (const m of reserveMonths(books(), report.reserve)) {
     const btn = el("button", "category-card report-pick");
     btn.type = "button";
     btn.append(
@@ -1487,7 +1650,7 @@ function renderMonthPick() {
 }
 
 function renderMonthView() {
-  const r = reserveReport(entries, report.reserve, report.month);
+  const r = reserveReport(books(), report.reserve, report.month);
   if (!r.lots.length) return showReportStage("month");
   reportTitle.textContent = "Report";
   renderUsage(r, "What happened to " + moneyName(r.reserve, r.month) + "?");
@@ -1581,7 +1744,7 @@ function renderUsage(r, heading) {
 
 // Table of reserves (rows) x accounts (columns) with totals.
 function renderGrid() {
-  const grid = reserveAccountGrid(entries);
+  const grid = reserveAccountGrid(books());
   const order = computeReserves().map((r) => r.name);
   const reserves = [...grid.reserves].sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const cellText = (v) => (Math.abs(v) < 0.005 ? "–" : compactCurrency.format(v));
@@ -1642,7 +1805,7 @@ function shortDate(date) {
 }
 
 function renderAvailable() {
-  const a = availableToSpend(entries, budgets, plans, today(), autoPlanLines(entries, today()));
+  const a = availableToSpend(books(), budgets, plans, today(), autoPlanLines(books(), today()));
   const amountEl = document.getElementById("available-amount");
   amountEl.textContent = currency.format(a.available);
   amountEl.classList.toggle("expense", a.available < 0);
@@ -1703,7 +1866,7 @@ const forecastTable = document.getElementById("forecast-table");
 
 function renderBudget() {
   // This month's budget per category.
-  const status = budgetStatus(entries, budgets, today());
+  const status = budgetStatus(books(), budgets, today());
   budgetList.innerHTML = "";
   if (!status.rows.length) {
     budgetSummary.textContent = "No budgets yet. Tap + Set budget to give a category a monthly limit.";
@@ -1731,7 +1894,7 @@ function renderBudget() {
 
   // Planned cashflows: the automatic lines first (food, Ntorq), then the plans you added.
   planList.innerHTML = "";
-  const autoPlans = autoPlanLines(entries, today());
+  const autoPlans = autoPlanLines(books(), today());
   for (const auto of autoPlans) {
     const li = el("li", "plan-item auto-plan");
     const btn = el("button", "report-row plan-row");
@@ -1786,7 +1949,7 @@ function renderBudget() {
   }
 
   // Forecast.
-  const forecast = cashflowForecast(entries, budgets, plans, today(), FORECAST_MONTHS, autoPlans);
+  const forecast = cashflowForecast(books(), budgets, plans, today(), FORECAST_MONTHS, autoPlans);
   forecastTable.innerHTML = "";
   const head = el("tr");
   for (const h of ["Month", "In", "Out", "Balance"]) head.append(el("th", h === "Month" ? "grid-corner" : "", h));
