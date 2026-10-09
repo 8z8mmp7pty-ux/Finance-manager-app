@@ -416,7 +416,7 @@ test("R7: expense cards include 'Ntorq' and 'For Mom, Dad, Muthu' (replacing 'Re
   const names = await page.$$eval("#pick-grid .category-name", (els) => els.map((e) => e.textContent));
   assert.deepEqual(names, [
     "Mandatory Food", "Optional Food", "Ntorq", "Bills & Utilities", "Transport", "Dress",
-    "Health", "Education", "Entertainment", "For Mom, Dad, Muthu", "Other",
+    "Health", "Education", "Entertainment", "For Mom, Dad, Muthu", "Hair Cut", "Other",
   ]);
   await page.tap('#pick-grid .category-card:has-text("For Mom, Dad, Muthu")');
   await settle();
@@ -1344,5 +1344,24 @@ test("R44/R41/R5: a tap outside posts the chosen allocations; a lowered amount f
   const lowered = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "Conference");
   assert.equal(lowered.amount, 450);
   assert.deepEqual(lowered.allocations.map((a) => a.amount), [400, 50]);
+  await screen("");
+});
+
+test("R7: a Hair Cut expense card records a hair cut", { skip }, async () => {
+  await screen("");
+  await openAdd();
+  await page.tap(".type-card[data-flow=expense]");
+  await settle();
+  await page.tap('#pick-grid .category-card:has-text("Hair Cut")');
+  await settle();
+  assert.ok(await page.isVisible("#amount-form"), "straight to the amount");
+  await page.fill("#amount", "150");
+  await page.fill("#note", "Salon visit");
+  await page.tap("#post-btn");
+  await page.waitForFunction(() => /Hair Cut paid from/.test(document.getElementById("posted").textContent));
+  const saved = (await (await page.request.get(URL_ + "api/entries")).json()).find((e) => e.description === "Salon visit");
+  assert.deepEqual([saved.type, saved.category, saved.amount], ["expense", "Hair Cut", 150]);
+  await screen("entries");
+  assert.match(await page.textContent('.entry-card:has-text("Salon visit")'), /💇/);
   await screen("");
 });

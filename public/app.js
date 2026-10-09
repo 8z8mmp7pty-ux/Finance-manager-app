@@ -57,6 +57,7 @@ const CATEGORIES = {
     { name: "Education", icon: "📚" },
     { name: "Entertainment", icon: "🎬" },
     { name: "For Mom, Dad, Muthu", icon: "❤️" },
+    { name: "Hair Cut", icon: "💇" },
     { name: "Other", icon: "➖" },
   ],
 };
